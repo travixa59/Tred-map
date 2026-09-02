@@ -1,0 +1,721 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>AI Trading Edge</title>
+<script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js" onerror="document.getElementById('boot-msg').textContent='React library failed to load — check your internet connection and reload.'"></script>
+<script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js" onerror="document.getElementById('boot-msg').textContent='React-DOM library failed to load — check your internet connection and reload.'"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js" onerror="document.getElementById('boot-msg').textContent='Babel library failed to load — check your internet connection and reload.'"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: 'Inter', system-ui, -apple-system, sans-serif; background: #080F19; color: #E6EAF2; }
+  table { border-collapse: collapse; width: 100%; }
+  ::-webkit-scrollbar { height: 6px; width: 6px; }
+  ::-webkit-scrollbar-thumb { background: #1E2636; border-radius: 3px; }
+  #boot-msg { padding: 40px 20px; text-align: center; font-size: 14px; color: #A4ACCA; }
+</style>
+</head>
+<body>
+<div id="root"><div id="boot-msg">Loading AI Trading Edge… if this message stays for more than 15 seconds, your connection may be blocking cdnjs.cloudflare.com or unpkg.com — try switching from mobile data to WiFi (or the reverse) and reload.</div></div>
+
+<script>
+  setTimeout(function () {
+    var el = document.getElementById('boot-msg');
+    if (el && el.textContent.indexOf('Loading') === 0) {
+      el.textContent = 'Still loading after 15s. The app did not start — likely a blocked or slow connection to cdnjs.cloudflare.com / unpkg.com. Try WiFi instead of mobile data, or a different network, then reload this page.';
+    }
+  }, 15000);
+</script>
+
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useMemo } = React;
+
+// ---------------------------------------------------------------------------
+// DESIGN TOKENS
+// ---------------------------------------------------------------------------
+const COLORS = {
+  bg: "#080F19", card: "#121826", border: "#1E2636",
+  textPrimary: "#E6EAF2", textSecondary: "#A4ACCA",
+  bullish: "#16C784", bearish: "#EA3943", ai: "#885CFC",
+  info: "#2563EB", warning: "#F59E0B",
+};
+
+const DISCLAIMER = "Probability is an analytical estimate based on market data and historical patterns. It does not guarantee profit. Trading and options trading involve substantial risk.";
+
+// ---------------------------------------------------------------------------
+// BACKEND CONNECTION
+// ---------------------------------------------------------------------------
+const API_BASE = "https://tred-map.onrender.com";
+
+function getToken() { return localStorage.getItem("ai_trading_edge_token"); }
+function setToken(t) { localStorage.setItem("ai_trading_edge_token", t); }
+function clearToken() { localStorage.removeItem("ai_trading_edge_token"); }
+
+async function apiFetch(path, options = {}) {
+  const token = getToken();
+  const headers = { ...(options.headers || {}) };
+  if (token) headers["Authorization"] = "Bearer " + token;
+  const res = await fetch(API_BASE + path, { ...options, headers });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`API ${path} failed (${res.status}): ${text}`);
+  }
+  return res.json();
+}
+
+async function registerUser(email, password) {
+  const res = await fetch(API_BASE + "/auth/register", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+  if (!res.ok) throw new Error((await res.json()).detail || "Registration failed");
+  return res.json();
+}
+
+async function loginUser(email, password) {
+  const body = new URLSearchParams();
+  body.append("username", email);
+  body.append("password", password);
+  const res = await fetch(API_BASE + "/auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: body.toString(),
+  });
+  if (!res.ok) throw new Error((await res.json()).detail || "Login failed");
+  return res.json();
+}
+
+// ---------------------------------------------------------------------------
+// ICONS (inline SVG, no external icon library needed)
+// ---------------------------------------------------------------------------
+function Icon({ path, size = 16, color = "currentColor", fill = "none" }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill={fill} stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      {path}
+    </svg>
+  );
+}
+const paths = {
+  home: <><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 22V12h6v10"/></>,
+  scan: <><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/></>,
+  trendUp: <><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></>,
+  bar: <><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></>,
+  brain: <><path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96.44 2.5 2.5 0 0 1-2.96-3.08 3 3 0 0 1-.34-5.58 2.5 2.5 0 0 1 1.32-4.24 2.5 2.5 0 0 1 1.98-3A2.5 2.5 0 0 1 9.5 2Z"/><path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96.44 2.5 2.5 0 0 0 2.96-3.08 3 3 0 0 0 .34-5.58 2.5 2.5 0 0 0-1.32-4.24 2.5 2.5 0 0 0-1.98-3A2.5 2.5 0 0 0 14.5 2Z"/></>,
+  star: <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>,
+  wallet: <><path d="M20 12V8H6a2 2 0 0 1-2-2c0-1.1.9-2 2-2h12v4"/><path d="M4 6v12c0 1.1.9 2 2 2h14v-4"/><path d="M18 12a2 2 0 0 0 0 4h4v-4Z"/></>,
+  bell: <><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></>,
+  history: <><path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><path d="M12 7v5l4 2"/></>,
+  settings: <><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></>,
+  help: <><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></>,
+  sun: <><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></>,
+  user: <><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></>,
+  chevronRight: <polyline points="9 18 15 12 9 6"/>,
+  arrowUp: <><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></>,
+  circle: <circle cx="12" cy="12" r="10"/>,
+};
+
+// ---------------------------------------------------------------------------
+// MOCK DATA
+// ---------------------------------------------------------------------------
+const NAV_ITEMS = [
+  { key: "dashboard", label: "Dashboard", icon: "home" },
+  { key: "scanner", label: "Market Scanner", icon: "scan" },
+  { key: "topstocks", label: "Top Stocks", icon: "trendUp" },
+  { key: "optionanalyzer", label: "Option Analyzer", icon: "bar" },
+  { key: "optionchain", label: "Option Chain", icon: "bar" },
+  { key: "aitrade", label: "AI Trade Finder", icon: "brain" },
+  { key: "aipredictions", label: "AI Predictions", icon: "brain" },
+  { key: "watchlist", label: "Watchlist", icon: "star" },
+  { key: "paper", label: "Paper Trading", icon: "wallet" },
+  { key: "portfolio", label: "Portfolio", icon: "wallet" },
+  { key: "alerts", label: "Alerts", icon: "bell" },
+  { key: "backtest", label: "Backtest", icon: "history" },
+  { key: "settings", label: "Settings", icon: "settings" },
+  { key: "help", label: "Help", icon: "help" },
+];
+const MOBILE_NAV = [
+  { key: "dashboard", label: "Home", icon: "home" },
+  { key: "scanner", label: "Scanner", icon: "scan" },
+  { key: "optionchain", label: "Options", icon: "bar" },
+  { key: "aitrade", label: "AI Trade", icon: "brain" },
+  { key: "alerts", label: "Alerts", icon: "bell" },
+];
+const BULLISH_STOCKS = [
+  { symbol: "RELIANCE", price: 2952.4, prob: 84, trend: "Strong Bullish" },
+  { symbol: "HDFCBANK", price: 1678.85, prob: 81, trend: "Strong Bullish" },
+  { symbol: "ICICIBANK", price: 1132.6, prob: 79, trend: "Bullish" },
+  { symbol: "SBIN", price: 812.35, prob: 77, trend: "Bullish" },
+  { symbol: "INFY", price: 1498.25, prob: 75, trend: "Bullish" },
+  { symbol: "TCS", price: 3845.6, prob: 73, trend: "Bullish" },
+  { symbol: "AXISBANK", price: 1287.1, prob: 72, trend: "Bullish" },
+  { symbol: "LT", price: 3456.2, prob: 71, trend: "Bullish" },
+  { symbol: "ITC", price: 456.75, prob: 69, trend: "Bullish" },
+  { symbol: "KOTAKBANK", price: 1812.65, prob: 66, trend: "Bullish" },
+];
+const OPTION_CHAIN_ROWS = [
+  { strike: 24700, callOiChg: 22.4, callLtp: 253.15, callProb: 65, putOiChg: 28.7, putLtp: 97.6, putProb: 68 },
+  { strike: 24800, callOiChg: 35.7, callLtp: 189.2, callProb: 73, putOiChg: 36.8, putLtp: 135.2, putProb: 73 },
+  { strike: 24900, callOiChg: 41.3, callLtp: 136.45, callProb: 72, putOiChg: 41.1, putLtp: 186.4, putProb: 78, atm: true },
+  { strike: 25000, callOiChg: 28.6, callLtp: 95.1, callProb: 68, putOiChg: 39.6, putLtp: 241.15, putProb: 73 },
+  { strike: 25100, callOiChg: 18.2, callLtp: 63.25, callProb: 61, putOiChg: 22.4, putLtp: 308.45, putProb: 61 },
+];
+const SECTOR_PERFORMANCE = [
+  { name: "IT", change: 2.45 }, { name: "BANKING", change: 1.85 }, { name: "AUTO", change: 1.35 },
+  { name: "PHARMA", change: -0.25 }, { name: "FMCG", change: 0.35 },
+];
+const HEATMAP_TILES = [
+  { symbol: "HDFCBANK", change: 1.65 }, { symbol: "INFY", change: 2.21 }, { symbol: "TCS", change: 1.78 },
+  { symbol: "WIPRO", change: 1.35 }, { symbol: "SBIN", change: 1.45 }, { symbol: "RELIANCE", change: 1.46 },
+  { symbol: "SUNPHARMA", change: -0.15 }, { symbol: "CIPLA", change: 0.43 }, { symbol: "ONGC", change: 0.75 },
+];
+const AI_PREDICTION = [
+  { name: "Bullish", value: 78, color: COLORS.bullish },
+  { name: "Bearish", value: 12, color: COLORS.bearish },
+  { name: "Sideways", value: 10, color: COLORS.textSecondary },
+];
+
+function genCandles(n = 22) {
+  let price = 24780; const out = [];
+  for (let i = 0; i < n; i++) {
+    const open = price, move = (Math.random() - 0.45) * 40, close = open + move;
+    const high = Math.max(open, close) + Math.random() * 15, low = Math.min(open, close) - Math.random() * 15;
+    out.push({ i, open, close, high, low }); price = close;
+  }
+  return out;
+}
+function genLineSeries(n = 30, start = 24500, drift = 6) {
+  let v = start; const out = [];
+  for (let i = 0; i < n; i++) { v += (Math.random() - 0.4) * drift * 10; out.push({ i, value: v }); }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// UI PRIMITIVES
+// ---------------------------------------------------------------------------
+function Card({ title, children }) {
+  return (
+    <div style={{ background: COLORS.card, border: `1px solid ${COLORS.border}`, borderRadius: 12, padding: 16, display: "flex", flexDirection: "column", gap: 12, minWidth: 0 }}>
+      {title && <span style={{ fontSize: 13, fontWeight: 600, letterSpacing: 0.4, color: COLORS.textSecondary }}>{title}</span>}
+      {children}
+    </div>
+  );
+}
+function Pill({ children, color, bg }) {
+  return <span style={{ fontSize: 11, fontWeight: 600, color, background: bg, padding: "3px 8px", borderRadius: 6, whiteSpace: "nowrap" }}>{children}</span>;
+}
+function Candles({ data, height = 130 }) {
+  const width = 300;
+  const highs = data.map(d => d.high), lows = data.map(d => d.low);
+  const max = Math.max(...highs), min = Math.min(...lows), range = max - min || 1;
+  const gap = width / data.length;
+  const y = v => height - ((v - min) / range) * height;
+  return (
+    <svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none">
+      {data.map((d, idx) => {
+        const bullish = d.close >= d.open, color = bullish ? COLORS.bullish : COLORS.bearish;
+        const x = idx * gap + gap / 2, bodyTop = y(Math.max(d.open, d.close)), bodyBottom = y(Math.min(d.open, d.close));
+        return (
+          <g key={idx}>
+            <line x1={x} x2={x} y1={y(d.high)} y2={y(d.low)} stroke={color} strokeWidth={1} />
+            <rect x={x - gap * 0.28} y={bodyTop} width={gap * 0.56} height={Math.max(1, bodyBottom - bodyTop)} fill={color} />
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+function LineSpark({ data, color, height = 36, area = false }) {
+  const width = 300;
+  const vals = data.map(d => d.value);
+  const max = Math.max(...vals), min = Math.min(...vals), range = max - min || 1;
+  const gap = width / (data.length - 1);
+  const pts = data.map((d, i) => `${i * gap},${height - ((d.value - min) / range) * height}`).join(" ");
+  const areaPts = `0,${height} ${pts} ${width},${height}`;
+  return (
+    <svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none">
+      {area && <polygon points={areaPts} fill={color} opacity="0.15" />}
+      <polyline points={pts} fill="none" stroke={color} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+    </svg>
+  );
+}
+function Donut({ data, size = 90 }) {
+  const total = data.reduce((s, d) => s + d.value, 0);
+  let angleAcc = -90;
+  const r = size / 2 - 8, cx = size / 2, cy = size / 2;
+  const arcs = data.map(d => {
+    const angle = (d.value / total) * 360;
+    const start = angleAcc, end = angleAcc + angle; angleAcc = end;
+    const toRad = a => (a * Math.PI) / 180;
+    const x1 = cx + r * Math.cos(toRad(start)), y1 = cy + r * Math.sin(toRad(start));
+    const x2 = cx + r * Math.cos(toRad(end)), y2 = cy + r * Math.sin(toRad(end));
+    const largeArc = angle > 180 ? 1 : 0;
+    return { d: `M${x1},${y1} A${r},${r} 0 ${largeArc} 1 ${x2},${y2}`, color: d.color };
+  });
+  return (
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+      {arcs.map((a, i) => <path key={i} d={a.d} stroke={a.color} strokeWidth={14} fill="none" strokeLinecap="butt" />)}
+    </svg>
+  );
+}
+function SentimentGauge({ value }) {
+  const angle = (value / 100) * 180;
+  const r = 40, cx = 50, cy = 50;
+  const rad = (Math.PI / 180) * (180 - angle);
+  const x = cx - r * Math.cos(rad), y = cy - r * Math.sin(rad);
+  const largeArc = angle > 180 ? 1 : 0;
+  return (
+    <svg width="100%" height="70" viewBox="0 0 100 55">
+      <path d="M10,50 A40,40 0 0,1 90,50" fill="none" stroke={COLORS.border} strokeWidth="8" strokeLinecap="round" />
+      <path d={`M10,50 A40,40 0 ${largeArc},1 ${x},${y}`} fill="none" stroke={COLORS.bullish} strokeWidth="8" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// AUTH SCREEN (login / register against the live backend)
+// ---------------------------------------------------------------------------
+function AuthScreen({ onAuthed }) {
+  const [mode, setMode] = useState("login"); // "login" | "register"
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [wakingNote, setWakingNote] = useState(false);
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setError("");
+    if (!email || !password) { setError("Enter both email and password."); return; }
+    setLoading(true);
+    setWakingNote(false);
+    const wakeTimer = setTimeout(() => setWakingNote(true), 4000);
+    try {
+      const data = mode === "login" ? await loginUser(email, password) : await registerUser(email, password);
+      setToken(data.access_token);
+      onAuthed();
+    } catch (err) {
+      setError(err.message || "Something went wrong.");
+    } finally {
+      clearTimeout(wakeTimer);
+      setLoading(false);
+      setWakingNote(false);
+    }
+  }
+
+  return (
+    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+      <div style={{ width: "100%", maxWidth: 360, background: COLORS.card, border: `1px solid ${COLORS.border}`, borderRadius: 12, padding: 24 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 20, justifyContent: "center" }}>
+          <div style={{ width: 32, height: 32, borderRadius: 8, background: COLORS.ai, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <Icon path={paths.brain} size={18} color="#fff" />
+          </div>
+          <span style={{ fontWeight: 700, fontSize: 16 }}>AI TRADING EDGE</span>
+        </div>
+
+        <div style={{ display: "flex", gap: 4, marginBottom: 20, background: COLORS.bg, borderRadius: 8, padding: 4 }}>
+          {["login", "register"].map(m => (
+            <button
+              key={m}
+              type="button"
+              onClick={() => { setMode(m); setError(""); }}
+              style={{
+                flex: 1, padding: "8px 0", borderRadius: 6, border: "none", cursor: "pointer",
+                fontSize: 13, fontWeight: 600, textTransform: "capitalize",
+                background: mode === m ? COLORS.info : "transparent",
+                color: mode === m ? "#fff" : COLORS.textSecondary,
+              }}
+            >
+              {m === "login" ? "Log in" : "Register"}
+            </button>
+          ))}
+        </div>
+
+        <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <div>
+            <label style={{ fontSize: 12, color: COLORS.textSecondary, display: "block", marginBottom: 4 }}>Email</label>
+            <input
+              type="email" value={email} onChange={e => setEmail(e.target.value)}
+              placeholder="you@example.com"
+              style={{ width: "100%", padding: "10px 12px", borderRadius: 8, border: `1px solid ${COLORS.border}`, background: COLORS.bg, color: COLORS.textPrimary, fontSize: 14 }}
+            />
+          </div>
+          <div>
+            <label style={{ fontSize: 12, color: COLORS.textSecondary, display: "block", marginBottom: 4 }}>Password</label>
+            <input
+              type="password" value={password} onChange={e => setPassword(e.target.value)}
+              placeholder="••••••••"
+              style={{ width: "100%", padding: "10px 12px", borderRadius: 8, border: `1px solid ${COLORS.border}`, background: COLORS.bg, color: COLORS.textPrimary, fontSize: 14 }}
+            />
+          </div>
+
+          {error && <div style={{ fontSize: 12, color: COLORS.bearish }}>{error}</div>}
+          {wakingNote && <div style={{ fontSize: 11, color: COLORS.textSecondary }}>Server is waking up (free tier) — this can take up to a minute on the first request…</div>}
+
+          <button
+            type="submit" disabled={loading}
+            style={{
+              marginTop: 4, padding: "12px 0", borderRadius: 8, border: "none", cursor: loading ? "default" : "pointer",
+              background: COLORS.info, color: "#fff", fontWeight: 600, fontSize: 14, opacity: loading ? 0.7 : 1,
+            }}
+          >
+            {loading ? "Please wait…" : mode === "login" ? "Log in" : "Create account"}
+          </button>
+        </form>
+
+        <div style={{ fontSize: 10, color: COLORS.textSecondary, textAlign: "center", marginTop: 16 }}>{DISCLAIMER}</div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// DASHBOARD
+// ---------------------------------------------------------------------------
+function Dashboard({ isMobile }) {
+  const candles = useMemo(() => genCandles(22), []);
+  const [overview, setOverview] = useState(null);
+  const [bullishStocks, setBullishStocks] = useState(null);
+  const [loadError, setLoadError] = useState("");
+  const overviewSeries = useMemo(() => genLineSeries(40, 24500, 4), []);
+  const vixSeries = useMemo(() => genLineSeries(20, 14, 0.6), []);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      try {
+        const [ov, bl] = await Promise.all([
+          apiFetch("/dashboard/overview"),
+          apiFetch("/dashboard/top-bullish"),
+        ]);
+        if (!cancelled) {
+          setOverview(ov);
+          setBullishStocks(bl.stocks);
+        }
+      } catch (err) {
+        if (!cancelled) setLoadError("Could not load live data from the backend — showing local sample data instead.");
+      }
+    }
+    load();
+    return () => { cancelled = true; };
+  }, []);
+
+  const bestTrade = {
+    symbol: "NIFTY", strike: 25000, type: "CE", prob: 73,
+    buyLow: 185, buyHigh: 190, t1: 205, t2: 225, t3: 245, sl: 170,
+    rr: "1 : 2.3", expiry: "30 Sep 2026",
+    reasons: ["OI buildup supportive", "Price above VWAP", "Momentum strong", "IV acceptable"],
+  };
+
+  const displayStocks = bullishStocks || BULLISH_STOCKS.map(s => ({ symbol: s.symbol, ltp: s.price, probability: s.prob, trend: s.trend }));
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(4, 1fr)", gap: 16 }}>
+        <Card title="Market Trend">
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <span style={{ fontSize: 20, fontWeight: 700, color: COLORS.bullish }}>Bullish</span>
+            <Icon path={paths.trendUp} size={18} color={COLORS.bullish} />
+          </div>
+          <span style={{ fontSize: 12, color: COLORS.textSecondary }}>Strong bullish momentum</span>
+          <LineSpark data={overviewSeries.slice(0, 20)} color={COLORS.bullish} />
+        </Card>
+        <Card title="Advance / Decline">
+          <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+            <span style={{ fontSize: 20, fontWeight: 700, color: COLORS.bullish }}>1423</span>
+            <span style={{ fontSize: 13, color: COLORS.textSecondary }}>/</span>
+            <span style={{ fontSize: 20, fontWeight: 700, color: COLORS.bearish }}>675</span>
+          </div>
+          <div style={{ display: "flex", height: 8, borderRadius: 4, overflow: "hidden" }}>
+            <div style={{ width: "68%", background: COLORS.bullish }} />
+            <div style={{ width: "32%", background: COLORS.bearish }} />
+          </div>
+        </Card>
+        <Card title="Market Sentiment">
+          <SentimentGauge value={68} />
+          <div style={{ textAlign: "center", marginTop: -8 }}>
+            <div style={{ fontSize: 20, fontWeight: 700 }}>68%</div>
+            <div style={{ fontSize: 12, color: COLORS.bullish }}>Bullish</div>
+          </div>
+        </Card>
+        <Card title="India VIX">
+          <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+            <span style={{ fontSize: 20, fontWeight: 700 }}>14.32</span>
+            <span style={{ fontSize: 12, color: COLORS.bearish }}>-2.41%</span>
+          </div>
+          <LineSpark data={vixSeries} color={COLORS.ai} />
+        </Card>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1.1fr 1.1fr 1.3fr", gap: 16 }}>
+        <Card title="Top 10 Bullish Stocks">
+          {loadError && <div style={{ fontSize: 11, color: COLORS.warning }}>{loadError}</div>}
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ fontSize: 13 }}>
+              <thead>
+                <tr style={{ color: COLORS.textSecondary, fontSize: 11, textAlign: "left" }}>
+                  <th style={{ padding: "4px 6px" }}>#</th><th style={{ padding: "4px 6px" }}>Stock</th>
+                  <th style={{ padding: "4px 6px" }}>Price</th><th style={{ padding: "4px 6px" }}>Prob.</th>
+                  <th style={{ padding: "4px 6px" }}>Trend</th>
+                </tr>
+              </thead>
+              <tbody>
+                {displayStocks.slice(0, 10).map((s, idx) => (
+                  <tr key={s.symbol} style={{ borderTop: `1px solid ${COLORS.border}` }}>
+                    <td style={{ padding: "6px", color: COLORS.textSecondary }}>{idx + 1}</td>
+                    <td style={{ padding: "6px", fontWeight: 600 }}>{s.symbol}</td>
+                    <td style={{ padding: "6px" }}>₹{Number(s.ltp).toLocaleString("en-IN")}</td>
+                    <td style={{ padding: "6px", color: COLORS.bullish, fontWeight: 600 }}>{s.probability}%</td>
+                    <td style={{ padding: "6px", color: COLORS.bullish, fontSize: 11 }}>{s.trend || (s.probability >= 75 ? "Strong Bullish" : "Bullish")}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <button style={{ background: "transparent", border: `1px solid ${COLORS.border}`, color: COLORS.textPrimary, borderRadius: 8, padding: "8px 12px", fontSize: 13, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+            View all stocks <Icon path={paths.chevronRight} size={14} />
+          </button>
+        </Card>
+
+        <Card title="AI Option Trade Setup — NIFTY">
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <span style={{ fontSize: 16, fontWeight: 700 }}>{bestTrade.symbol} {bestTrade.strike.toLocaleString("en-IN")} {bestTrade.type}</span>
+            <Pill color="#08331F" bg={COLORS.bullish}>BUY</Pill>
+          </div>
+          <span style={{ fontSize: 12, color: COLORS.textSecondary }}>
+            Estimated probability <span style={{ color: COLORS.bullish, fontWeight: 700 }}>{bestTrade.prob}%</span>
+          </span>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, fontSize: 12 }}>
+            <div><div style={{ color: COLORS.textSecondary }}>Buy range</div><div style={{ fontWeight: 600 }}>₹{bestTrade.buyLow}–{bestTrade.buyHigh}</div></div>
+            <div><div style={{ color: COLORS.textSecondary }}>Risk / reward</div><div style={{ fontWeight: 600 }}>{bestTrade.rr}</div></div>
+            <div><div style={{ color: COLORS.textSecondary }}>Target 1</div><div style={{ fontWeight: 600, color: COLORS.bullish }}>₹{bestTrade.t1}</div></div>
+            <div><div style={{ color: COLORS.textSecondary }}>Target 2</div><div style={{ fontWeight: 600, color: COLORS.bullish }}>₹{bestTrade.t2}</div></div>
+            <div><div style={{ color: COLORS.textSecondary }}>Target 3</div><div style={{ fontWeight: 600, color: COLORS.bullish }}>₹{bestTrade.t3}</div></div>
+            <div><div style={{ color: COLORS.textSecondary }}>Stop loss</div><div style={{ fontWeight: 600, color: COLORS.bearish }}>₹{bestTrade.sl}</div></div>
+          </div>
+          <div>
+            <div style={{ fontSize: 11, color: COLORS.textSecondary, marginBottom: 4 }}>5 min chart</div>
+            <Candles data={candles} />
+          </div>
+          <div>
+            <div style={{ fontSize: 11, color: COLORS.textSecondary, marginBottom: 6 }}>Key factors</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              {bestTrade.reasons.map(r => (
+                <div key={r} style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+                  <span>{r}</span><Icon path={paths.arrowUp} size={13} color={COLORS.bullish} />
+                </div>
+              ))}
+            </div>
+          </div>
+          <div style={{ fontSize: 10, color: COLORS.textSecondary, borderTop: `1px solid ${COLORS.border}`, paddingTop: 6 }}>Expiry {bestTrade.expiry}</div>
+        </Card>
+
+        <Card title="Option Chain — NIFTY">
+          <div style={{ display: "flex", gap: 8, fontSize: 11, fontWeight: 700 }}>
+            <div style={{ flex: 1, textAlign: "center", padding: 6, borderRadius: 6, background: "#0F2A20", color: COLORS.bullish }}>CALLS (CE)</div>
+            <div style={{ flex: 1, textAlign: "center", padding: 6, borderRadius: 6, background: "#2E1416", color: COLORS.bearish }}>PUTS (PE)</div>
+          </div>
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ fontSize: 11 }}>
+              <thead>
+                <tr style={{ color: COLORS.textSecondary, textAlign: "center" }}>
+                  <th style={{ padding: "4px" }}>OI Chg</th><th style={{ padding: "4px" }}>LTP</th><th style={{ padding: "4px" }}>Prob.</th>
+                  <th style={{ padding: "4px", background: "#1B2333" }}>Strike</th>
+                  <th style={{ padding: "4px" }}>OI Chg</th><th style={{ padding: "4px" }}>LTP</th><th style={{ padding: "4px" }}>Prob.</th>
+                </tr>
+              </thead>
+              <tbody>
+                {OPTION_CHAIN_ROWS.map(r => (
+                  <tr key={r.strike} style={{ borderTop: `1px solid ${COLORS.border}`, textAlign: "center" }}>
+                    <td style={{ padding: "5px", color: r.callOiChg >= 0 ? COLORS.bullish : COLORS.bearish }}>+{r.callOiChg}%</td>
+                    <td style={{ padding: "5px" }}>{r.callLtp}</td><td style={{ padding: "5px" }}>{r.callProb}%</td>
+                    <td style={{ padding: "5px", fontWeight: 700, background: r.atm ? "#241B4A" : "transparent" }}>{r.strike.toLocaleString("en-IN")}</td>
+                    <td style={{ padding: "5px", color: r.putOiChg >= 0 ? COLORS.bullish : COLORS.bearish }}>+{r.putOiChg}%</td>
+                    <td style={{ padding: "5px" }}>{r.putLtp}</td><td style={{ padding: "5px" }}>{r.putProb}%</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <span style={{ fontSize: 12, color: COLORS.textSecondary }}>Spot: <span style={{ color: COLORS.textPrimary, fontWeight: 600 }}>24,834.85</span> <span style={{ color: COLORS.bullish }}>(+1.02%)</span></span>
+            <button style={{ background: COLORS.info, border: "none", color: "#fff", borderRadius: 8, padding: "8px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Full option chain</button>
+          </div>
+        </Card>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(4, 1fr)", gap: 16 }}>
+        <Card title="Market Overview">
+          <LineSpark data={overviewSeries} color={COLORS.bullish} height={110} area={true} />
+          <div style={{ display: "flex", gap: 6, fontSize: 11 }}>
+            {["1D", "1W", "1M", "3M", "1Y"].map((t, i) => (
+              <span key={t} style={{ padding: "3px 8px", borderRadius: 6, background: i === 0 ? COLORS.info : "transparent", color: i === 0 ? "#fff" : COLORS.textSecondary }}>{t}</span>
+            ))}
+          </div>
+        </Card>
+        <Card title="Sector Performance">
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {SECTOR_PERFORMANCE.map(s => (
+              <div key={s.name} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11 }}>
+                <span style={{ width: 56, color: COLORS.textSecondary }}>{s.name}</span>
+                <div style={{ flex: 1, height: 6, background: COLORS.border, borderRadius: 3, overflow: "hidden" }}>
+                  <div style={{ width: `${Math.min(Math.abs(s.change) * 30, 100)}%`, height: "100%", background: s.change >= 0 ? COLORS.bullish : COLORS.bearish }} />
+                </div>
+                <span style={{ width: 44, textAlign: "right", color: s.change >= 0 ? COLORS.bullish : COLORS.bearish, fontWeight: 600 }}>{s.change > 0 ? "+" : ""}{s.change}%</span>
+              </div>
+            ))}
+          </div>
+        </Card>
+        <Card title="AI Prediction Summary">
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <Donut data={AI_PREDICTION} />
+            <div style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12 }}>
+              {AI_PREDICTION.map(e => (
+                <div key={e.name} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ width: 8, height: 8, borderRadius: 4, background: e.color }} />
+                  <span style={{ fontWeight: 700 }}>{e.value}%</span><span style={{ color: COLORS.textSecondary }}>{e.name}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </Card>
+        <Card title="Market Heatmap">
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
+            {HEATMAP_TILES.map(t => (
+              <div key={t.symbol} style={{ background: t.change >= 0 ? "#0F2A20" : "#2E1416", color: t.change >= 0 ? COLORS.bullish : COLORS.bearish, borderRadius: 8, padding: "6px 4px", textAlign: "center" }}>
+                <div style={{ fontSize: 10, fontWeight: 700 }}>{t.symbol}</div>
+                <div style={{ fontSize: 10 }}>{t.change > 0 ? "+" : ""}{t.change}%</div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      </div>
+
+      <div style={{ fontSize: 11, color: COLORS.textSecondary, textAlign: "center", padding: "4px 0 12px" }}>{DISCLAIMER}</div>
+    </div>
+  );
+}
+
+function ComingSoon({ label }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: 260, gap: 8, color: COLORS.textSecondary }}>
+      <Icon path={paths.brain} size={28} color={COLORS.ai} />
+      <div style={{ fontSize: 15, fontWeight: 600, color: COLORS.textPrimary }}>{label}</div>
+      <div style={{ fontSize: 12, textAlign: "center", maxWidth: 320 }}>This page is planned for a later build phase. The Dashboard (Phase 1) is complete with mock data.</div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// APP SHELL
+// ---------------------------------------------------------------------------
+function AITradingEdge() {
+  const [active, setActive] = useState("dashboard");
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 900);
+  const [clock, setClock] = useState(new Date());
+  const [authed, setAuthed] = useState(!!getToken());
+
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 900);
+    window.addEventListener("resize", check);
+    const t = setInterval(() => setClock(new Date()), 30000);
+    return () => { window.removeEventListener("resize", check); clearInterval(t); };
+  }, []);
+
+  if (!authed) {
+    return <AuthScreen onAuthed={() => setAuthed(true)} />;
+  }
+
+  const timeStr = clock.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  const activeLabel = (NAV_ITEMS.find(n => n.key === active) || {}).label || "Dashboard";
+
+  function handleLogout() {
+    clearToken();
+    setAuthed(false);
+  }
+
+  return (
+    <div style={{ background: COLORS.bg, color: COLORS.textPrimary, minHeight: "100vh" }}>
+      <div style={{ height: 64, borderBottom: `1px solid ${COLORS.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 16px", position: "sticky", top: 0, background: COLORS.bg, zIndex: 10, gap: 12, overflowX: "auto" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+          <div style={{ width: 28, height: 28, borderRadius: 8, background: COLORS.ai, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <Icon path={paths.brain} size={16} color="#fff" />
+          </div>
+          {!isMobile && <span style={{ fontWeight: 700, fontSize: 14, whiteSpace: "nowrap" }}>AI TRADING EDGE</span>}
+        </div>
+        {!isMobile && (
+          <div style={{ display: "flex", gap: 20, fontSize: 12 }}>
+            {[
+              { label: "NIFTY 50", v: "24,834.85", chg: "+1.02%" },
+              { label: "BANK NIFTY", v: "53,621.45", chg: "+1.35%" },
+              { label: "SENSEX", v: "81,330.56", chg: "+0.92%" },
+              { label: "INDIA VIX", v: "14.32", chg: "-2.41%" },
+            ].map(idx => (
+              <div key={idx.label}>
+                <div style={{ color: COLORS.textSecondary, fontSize: 10 }}>{idx.label}</div>
+                <div style={{ fontWeight: 700 }}>{idx.v} <span style={{ color: idx.chg.startsWith("+") ? COLORS.bullish : COLORS.bearish, fontWeight: 600 }}>{idx.chg}</span></div>
+              </div>
+            ))}
+          </div>
+        )}
+        <div style={{ display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
+          <span style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, color: COLORS.bullish }}>
+            <Icon path={paths.circle} size={8} color={COLORS.bullish} fill={COLORS.bullish} /> Live
+          </span>
+          {!isMobile && <span style={{ fontSize: 12, color: COLORS.textSecondary }}>{timeStr}</span>}
+          <Icon path={paths.sun} size={16} color={COLORS.textSecondary} />
+          <Icon path={paths.bell} size={16} color={COLORS.textSecondary} />
+          <div onClick={handleLogout} title="Log out" style={{ cursor: "pointer" }}>
+            <Icon path={paths.user} size={16} color={COLORS.textSecondary} />
+          </div>
+        </div>
+      </div>
+
+      <div style={{ display: "flex" }}>
+        {!isMobile && (
+          <div style={{ width: 220, borderRight: `1px solid ${COLORS.border}`, padding: 12, flexShrink: 0, minHeight: "calc(100vh - 64px)" }}>
+            {NAV_ITEMS.map(item => {
+              const isActive = active === item.key;
+              return (
+                <div key={item.key} onClick={() => setActive(item.key)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: 8, marginBottom: 2, cursor: "pointer", fontSize: 13, background: isActive ? COLORS.info : "transparent", color: isActive ? "#fff" : COLORS.textSecondary }}>
+                  <Icon path={paths[item.icon]} size={16} />{item.label}
+                </div>
+              );
+            })}
+          </div>
+        )}
+        <div style={{ flex: 1, padding: 20, paddingBottom: isMobile ? 80 : 20, minWidth: 0 }}>
+          {active === "dashboard" ? <Dashboard isMobile={isMobile} /> : <ComingSoon label={activeLabel} />}
+        </div>
+      </div>
+
+      {isMobile && (
+        <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, height: 64, background: COLORS.card, borderTop: `1px solid ${COLORS.border}`, display: "flex", zIndex: 20 }}>
+          {MOBILE_NAV.map(item => {
+            const isActive = active === item.key;
+            return (
+              <div key={item.key} onClick={() => setActive(item.key)} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4, cursor: "pointer", color: isActive ? COLORS.info : COLORS.textSecondary }}>
+                <Icon path={paths[item.icon]} size={18} /><span style={{ fontSize: 10 }}>{item.label}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+try {
+  ReactDOM.createRoot(document.getElementById("root")).render(<AITradingEdge />);
+} catch (err) {
+  document.getElementById("root").innerHTML =
+    '<div style="padding:40px 20px;text-align:center;font-size:14px;color:#EA3943;">App failed to start: ' +
+    (err && err.message ? err.message : String(err)) +
+    '</div>';
+}
+</script>
+</body>
+</html>
