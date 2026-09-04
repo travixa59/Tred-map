@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>AI Trading Edge</title>
+<style>
+  :root {
+    --bg: #080F19; --card: #121826; --border: #1E2636;
+    --text: #E6EAF2; --text2: #A4ACCA;
+    --bullish: #16C784; --bearish: #EA3943; --ai: #885CFC; --info: #2563EB;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  table { border-collapse: collapse; width: 100%; }
+  ::-webkit-scrollbar { height: 6px; width: 6px; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  .card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+    padding: 16px; display: flex; flex-direction: column; gap: 12px; min-width: 0;
+  }
+  .card-title { font-size: 13px; font-weight: 600; letter-spacing: 0.4px; color: var(--text2); }
+  input {
+    width: 100%; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border);
+    background: var(--bg); color: var(--text); font-size: 14px;
+  }
+  button { font-family: inherit; }
+  .btn-primary {
+    padding: 12px 0; border-radius: 8px; border: none; cursor: pointer;
+    background: var(--info); color: #fff; font-weight: 600; font-size: 14px; width: 100%;
+  }
+  .btn-primary:disabled { opacity: 0.7; cursor: default; }
+  .tab-btn {
+    flex: 1; padding: 8px 0; border-radius: 6px; border: none; cursor: pointer;
+    font-size: 13px; font-weight: 600; background: transparent; color: var(--text2);
+  }
+  .tab-btn.active { background: var(--info); color: #fff; }
+  .grid { display: grid; gap: 16px; }
+  #root { min-height: 100vh; }
+  .disclaimer { font-size: 11px; color: var(--text2); text-align: center; padding: 4px 0 12px; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script>
+"use strict";
+
+// ---------------------------------------------------------------------------
+// BACKEND CONNECTION (the only network calls this page makes)
+// ---------------------------------------------------------------------------
+const API_BASE = "https://tred-map.onrender.com";
+const DISCLAIMER = "Probability is an analytical estimate based on market data and historical patterns. It does not guarantee profit. Trading and options trading involve substantial risk.";
+
+function getToken() { return localStorage.getItem("ai_trading_edge_token"); }
+function setToken(t) { localStorage.setItem("ai_trading_edge_token", t); }
+function clearToken() { localStorage.removeItem("ai_trading_edge_token"); }
+
+async function apiFetch(path, options) {
+  options = options || {};
+  const token = getToken();
+  const headers = Object.assign({}, options.headers || {});
+  if (token) headers["Authorization"] = "Bearer " + token;
+  const res = await fetch(API_BASE + path, Object.assign({}, options, { headers: headers }));
+  if (!res.ok) {
+    const text = await res.text().catch(function () { return ""; });
+    throw new Error("API " + path + " failed (" + res.status + "): " + text);
+  }
+  return res.json();
+}
+
+async function registerUser(email, password) {
+  const res = await fetch(API_BASE + "/auth/register", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: email, password: password }),
+  });
+  if (!res.ok) {
+    const j = await res.json().catch(function () { return {}; });
+    throw new Error(j.detail || "Registration failed");
+  }
+  return res.json();
+}
+
+async function loginUser(email, password) {
+  const body = new URLSearchParams();
+  body.append("username", email);
+  body.append("password", password);
+  const res = await fetch(API_BASE + "/auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: body.toString(),
+  });
+  if (!res.ok) {
+    const j = await res.json().catch(function () { return {}; });
+    throw new Error(j.detail || "Login failed");
+  }
+  return res.json();
+}
+
+// ---------------------------------------------------------------------------
+// SMALL DOM HELPERS (no framework)
+// ---------------------------------------------------------------------------
+function el(tag, attrs, children) {
+  const node = document.createElement(tag);
+  attrs = attrs || {};
+  Object.keys(attrs).forEach(function (k) {
+    if (k === "class") node.className = attrs[k];
+    else if (k === "style") node.setAttribute("style", attrs[k]);
+    else if (k.indexOf("on") === 0 && typeof attrs[k] === "function") node.addEventListener(k.slice(2).toLowerCase(), attrs[k]);
+    else node.setAttribute(k, attrs[k]);
+  });
+  (children || []).forEach(function (c) {
+    if (c === null || c === undefined) return;
+    node.appendChild(typeof c === "string" ? document.createTextNode(c) : c);
+  });
+  return node;
+}
+function clear(node) { while (node.firstChild) node.removeChild(node.firstChild); }
+function fmtINR(n) { return Number(n).toLocaleString("en-IN"); }
+
+// ---------------------------------------------------------------------------
+// ICONS (tiny inline SVGs)
+// ---------------------------------------------------------------------------
+function icon(name, size, color) {
+  size = size || 16; color = color || "currentColor";
+  const paths = {
+    brain: '<path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96.44 2.5 2.5 0 0 1-2.96-3.08 3 3 0 0 1-.34-5.58 2.5 2.5 0 0 1 1.32-4.24 2.5 2.5 0 0 1 1.98-3A2.5 2.5 0 0 1 9.5 2Z"/><path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96.44 2.5 2.5 0 0 0 2.96-3.08 3 3 0 0 0 .34-5.58 2.5 2.5 0 0 0-1.32-4.24 2.5 2.5 0 0 0-1.98-3A2.5 2.5 0 0 0 14.5 2Z"/>',
+    bell: '<path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>',
+    user: '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+    circle: '<circle cx="12" cy="12" r="10"/>',
+  };
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("width", size); svg.setAttribute("height", size);
+  svg.setAttribute("viewBox", "0 0 24 24"); svg.setAttribute("fill", "none");
+  svg.setAttribute("stroke", color); svg.setAttribute("stroke-width", "2");
+  svg.setAttribute("stroke-linecap", "round"); svg.setAttribute("stroke-linejoin", "round");
+  svg.innerHTML = paths[name] || "";
+  return svg;
+}
+
+// ---------------------------------------------------------------------------
+// AUTH SCREEN
+// ---------------------------------------------------------------------------
+function renderAuthScreen(root, onAuthed) {
+  clear(root);
+  let mode = "login";
+
+  const wrap = el("div", { style: "min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;" });
+  const box = el("div", { style: "width:100%;max-width:360px;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:24px;" });
+
+  const header = el("div", { style: "display:flex;align-items:center;gap:8px;margin-bottom:20px;justify-content:center;" }, [
+    el("div", { style: "width:32px;height:32px;border-radius:8px;background:var(--ai);display:flex;align-items:center;justify-content:center;" }, [icon("brain", 18, "#fff")]),
+    el("span", { style: "font-weight:700;font-size:16px;" }, ["AI TRADING EDGE"]),
+  ]);
+
+  const loginTab = el("button", { class: "tab-btn active", type: "button" }, ["Log in"]);
+  const registerTab = el("button", { class: "tab-btn", type: "button" }, ["Register"]);
+  const tabRow = el("div", { style: "display:flex;gap:4px;margin-bottom:20px;background:var(--bg);border-radius:8px;padding:4px;" }, [loginTab, registerTab]);
+
+  const emailInput = el("input", { type: "email", placeholder: "you@example.com" });
+  const passwordInput = el("input", { type: "password", placeholder: "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022" });
+  const errorBox = el("div", { style: "font-size:12px;color:var(--bearish);display:none;" });
+  const wakingBox = el("div", { style: "font-size:11px;color:var(--text2);display:none;" }, ["Server is waking up (free tier) \u2014 this can take up to a minute on the first request\u2026"]);
+  const submitBtn = el("button", { class: "btn-primary", type: "submit" }, ["Log in"]);
+
+  function setMode(m) {
+    mode = m;
+    loginTab.className = "tab-btn" + (m === "login" ? " active" : "");
+    registerTab.className = "tab-btn" + (m === "register" ? " active" : "");
+    submitBtn.textContent = m === "login" ? "Log in" : "Create account";
+    errorBox.style.display = "none";
+  }
+  loginTab.addEventListener("click", function () { setMode("login"); });
+  registerTab.addEventListener("click", function () { setMode("register"); });
+
+  const form = el("form", { style: "display:flex;flex-direction:column;gap:12px;" }, [
+    el("div", {}, [el("label", { style: "font-size:12px;color:var(--text2);display:block;margin-bottom:4px;" }, ["Email"]), emailInput]),
+    el("div", {}, [el("label", { style: "font-size:12px;color:var(--text2);display:block;margin-bottom:4px;" }, ["Password"]), passwordInput]),
+    errorBox, wakingBox, submitBtn,
+  ]);
+
+  form.addEventListener("submit", async function (e) {
+    e.preventDefault();
+    errorBox.style.display = "none";
+    const email = emailInput.value.trim();
+    const password = passwordInput.value;
+    if (!email || !password) {
+      errorBox.textContent = "Enter both email and password.";
+      errorBox.style.display = "block";
+      return;
+    }
+    submitBtn.disabled = true;
+    submitBtn.textContent = "Please wait\u2026";
+    const wakeTimer = setTimeout(function () { wakingBox.style.display = "block"; }, 4000);
+    try {
+      const data = mode === "login" ? await loginUser(email, password) : await registerUser(email, password);
+      setToken(data.access_token);
+      onAuthed();
+    } catch (err) {
+      errorBox.textContent = err.message || "Something went wrong.";
+      errorBox.style.display = "block";
+    } finally {
+      clearTimeout(wakeTimer);
+      wakingBox.style.display = "none";
+      submitBtn.disabled = false;
+      submitBtn.textContent = mode === "login" ? "Log in" : "Create account";
+    }
+  });
+
+  const footer = el("div", { style: "font-size:10px;color:var(--text2);text-align:center;margin-top:16px;" }, [DISCLAIMER]);
+
+  box.appendChild(header); box.appendChild(tabRow); box.appendChild(form); box.appendChild(footer);
+  wrap.appendChild(box);
+  root.appendChild(wrap);
+}
+
+// ---------------------------------------------------------------------------
+// MOCK DATA (fallback if the live backend call fails or is still loading)
+// ---------------------------------------------------------------------------
+const FALLBACK_STOCKS = [
+  { symbol: "RELIANCE", ltp: 2952.4, probability: 84 },
+  { symbol: "HDFCBANK", ltp: 1678.85, probability: 81 },
+  { symbol: "ICICIBANK", ltp: 1132.6, probability: 79 },
+  { symbol: "SBIN", ltp: 812.35, probability: 77 },
+  { symbol: "INFY", ltp: 1498.25, probability: 75 },
+  { symbol: "TCS", ltp: 3845.6, probability: 73 },
+  { symbol: "AXISBANK", ltp: 1287.1, probability: 72 },
+  { symbol: "LT", ltp: 3456.2, probability: 71 },
+  { symbol: "ITC", ltp: 456.75, probability: 69 },
+  { symbol: "KOTAKBANK", ltp: 1812.65, probability: 66 },
+];
+const OPTION_CHAIN_ROWS = [
+  { strike: 24700, callOiChg: 22.4, callLtp: 253.15, callProb: 65, putOiChg: 28.7, putLtp: 97.6, putProb: 68 },
+  { strike: 24800, callOiChg: 35.7, callLtp: 189.2, callProb: 73, putOiChg: 36.8, putLtp: 135.2, putProb: 73 },
+  { strike: 24900, callOiChg: 41.3, callLtp: 136.45, callProb: 72, putOiChg: 41.1, putLtp: 186.4, putProb: 78, atm: true },
+  { strike: 25000, callOiChg: 28.6, callLtp: 95.1, callProb: 68, putOiChg: 39.6, putLtp: 241.15, putProb: 73 },
+  { strike: 25100, callOiChg: 18.2, callLtp: 63.25, callProb: 61, putOiChg: 22.4, putLtp: 308.45, putProb: 61 },
+];
+
+function buildStockCard(stocks, note) {
+  const card = el("div", { class: "card" }, [el("span", { class: "card-title" }, ["Top 10 Bullish Stocks"])]);
+  if (note) card.appendChild(el("div", { style: "font-size:11px;color:#F59E0B;" }, [note]));
+
+  const table = el("table", { style: "font-size:13px;" });
+  const thead = el("thead", {}, [el("tr", { style: "color:var(--text2);font-size:11px;text-align:left;" }, [
+    el("th", { style: "padding:4px 6px;" }, ["#"]),
+    el("th", { style: "padding:4px 6px;" }, ["Stock"]),
+    el("th", { style: "padding:4px 6px;" }, ["Price"]),
+    el("th", { style: "padding:4px 6px;" }, ["Prob."]),
+  ])]);
+  const tbody = el("tbody");
+  stocks.slice(0, 10).forEach(function (s, idx) {
+    tbody.appendChild(el("tr", { style: "border-top:1px solid var(--border);" }, [
+      el("td", { style: "padding:6px;color:var(--text2);" }, [String(idx + 1)]),
+      el("td", { style: "padding:6px;font-weight:600;" }, [s.symbol]),
+      el("td", { style: "padding:6px;" }, ["\u20B9" + fmtINR(s.ltp)]),
+      el("td", { style: "padding:6px;color:var(--bullish);font-weight:600;" }, [s.probability + "%"]),
+    ]));
+  });
+  table.appendChild(thead); table.appendChild(tbody);
+  card.appendChild(el("div", { style: "overflow-x:auto;" }, [table]));
+  return card;
+}
+
+function buildOptionChainCard() {
+  const card = el("div", { class: "card" }, [el("span", { class: "card-title" }, ["Option Chain \u2014 NIFTY"])]);
+  const header = el("div", { style: "display:flex;gap:8px;font-size:11px;font-weight:700;" }, [
+    el("div", { style: "flex:1;text-align:center;padding:6px;border-radius:6px;background:#0F2A20;color:var(--bullish);" }, ["CALLS (CE)"]),
+    el("div", { style: "flex:1;text-align:center;padding:6px;border-radius:6px;background:#2E1416;color:var(--bearish);" }, ["PUTS (PE)"]),
+  ]);
+  const table = el("table", { style: "font-size:11px;" });
+  const thead = el("thead", {}, [el("tr", { style: "color:var(--text2);text-align:center;" }, [
+    el("th", { style: "padding:4px;" }, ["OI Chg"]), el("th", { style: "padding:4px;" }, ["LTP"]), el("th", { style: "padding:4px;" }, ["Prob."]),
+    el("th", { style: "padding:4px;background:#1B2333;" }, ["Strike"]),
+    el("th", { style: "padding:4px;" }, ["OI Chg"]), el("th", { style: "padding:4px;" }, ["LTP"]), el("th", { style: "padding:4px;" }, ["Prob."]),
+  ])]);
+  const tbody = el("tbody");
+  OPTION_CHAIN_ROWS.forEach(function (r) {
+    tbody.appendChild(el("tr", { style: "border-top:1px solid var(--border);text-align:center;" }, [
+      el("td", { style: "padding:5px;color:" + (r.callOiChg >= 0 ? "var(--bullish)" : "var(--bearish)") + ";" }, ["+" + r.callOiChg + "%"]),
+      el("td", { style: "padding:5px;" }, [String(r.callLtp)]),
+      el("td", { style: "padding:5px;" }, [r.callProb + "%"]),
+      el("td", { style: "padding:5px;font-weight:700;background:" + (r.atm ? "#241B4A" : "transparent") + ";" }, [fmtINR(r.strike)]),
+      el("td", { style: "padding:5px;color:" + (r.putOiChg >= 0 ? "var(--bullish)" : "var(--bearish)") + ";" }, ["+" + r.putOiChg + "%"]),
+      el("td", { style: "padding:5px;" }, [String(r.putLtp)]),
+      el("td", { style: "padding:5px;" }, [r.putProb + "%"]),
+    ]));
+  });
+  table.appendChild(thead); table.appendChild(tbody);
+  card.appendChild(header);
+  card.appendChild(el("div", { style: "overflow-x:auto;" }, [table]));
+  card.appendChild(el("div", { style: "font-size:12px;color:var(--text2);" }, ["Spot: ", el("span", { style: "color:var(--text);font-weight:600;" }, ["24,834.85"]), " ", el("span", { style: "color:var(--bullish);" }, ["(+1.02%)"])]));
+  return card;
+}
+
+function buildTradeSetupCard() {
+  const t = { symbol: "NIFTY", strike: 25000, type: "CE", prob: 73, buyLow: 185, buyHigh: 190, t1: 205, t2: 225, t3: 245, sl: 170, rr: "1 : 2.3", expiry: "30 Sep 2026" };
+  const card = el("div", { class: "card" }, [el("span", { class: "card-title" }, ["AI Option Trade Setup \u2014 NIFTY"])]);
+  card.appendChild(el("div", { style: "display:flex;align-items:center;justify-content:space-between;" }, [
+    el("span", { style: "font-size:16px;font-weight:700;" }, [t.symbol + " " + fmtINR(t.strike) + " " + t.type]),
+    el("span", { style: "font-size:11px;font-weight:600;color:#08331F;background:var(--bullish);padding:3px 8px;border-radius:6px;" }, ["BUY"]),
+  ]));
+  card.appendChild(el("span", { style: "font-size:12px;color:var(--text2);" }, ["Estimated probability ", el("span", { style: "color:var(--bullish);font-weight:700;" }, [t.prob + "%"])]));
+  const grid = el("div", { style: "display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:12px;" });
+  [["Buy range", "\u20B9" + t.buyLow + "\u2013" + t.buyHigh, "var(--text)"], ["Risk / reward", t.rr, "var(--text)"],
+   ["Target 1", "\u20B9" + t.t1, "var(--bullish)"], ["Target 2", "\u20B9" + t.t2, "var(--bullish)"],
+   ["Target 3", "\u20B9" + t.t3, "var(--bullish)"], ["Stop loss", "\u20B9" + t.sl, "var(--bearish)"]].forEach(function (row) {
+    grid.appendChild(el("div", {}, [
+      el("div", { style: "color:var(--text2);" }, [row[0]]),
+      el("div", { style: "font-weight:600;color:" + row[2] + ";" }, [row[1]]),
+    ]));
+  });
+  card.appendChild(grid);
+  card.appendChild(el("div", { style: "font-size:10px;color:var(--text2);border-top:1px solid var(--border);padding-top:6px;" }, ["Expiry " + t.expiry]));
+  return card;
+}
+
+// ---------------------------------------------------------------------------
+// DASHBOARD SHELL
+// ---------------------------------------------------------------------------
+function renderDashboard(root, onLogout) {
+  clear(root);
+  const isMobile = window.innerWidth < 900;
+
+  const shell = el("div", { style: "background:var(--bg);color:var(--text);min-height:100vh;" });
+
+  const header = el("div", { style: "height:64px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 16px;position:sticky;top:0;background:var(--bg);z-index:10;gap:12px;" });
+  const brand = el("div", { style: "display:flex;align-items:center;gap:8px;" }, [
+    el("div", { style: "width:28px;height:28px;border-radius:8px;background:var(--ai);display:flex;align-items:center;justify-content:center;" }, [icon("brain", 16, "#fff")]),
+  ]);
+  if (!isMobile) brand.appendChild(el("span", { style: "font-weight:700;font-size:14px;white-space:nowrap;" }, ["AI TRADING EDGE"]));
+  const rightControls = el("div", { style: "display:flex;align-items:center;gap:12px;" }, [
+    el("span", { style: "display:flex;align-items:center;gap:4px;font-size:12px;color:var(--bullish);" }, [icon("circle", 8, "var(--bullish)"), " Live"]),
+    icon("bell", 16, "var(--text2)"),
+  ]);
+  const logoutIcon = el("div", { style: "cursor:pointer;", title: "Log out" }, [icon("user", 16, "var(--text2)")]);
+  logoutIcon.addEventListener("click", onLogout);
+  rightControls.appendChild(logoutIcon);
+  header.appendChild(brand); header.appendChild(rightControls);
+
+  const topGrid = el("div", { class: "grid", style: "grid-template-columns:" + (isMobile ? "1fr 1fr" : "repeat(4,1fr)") + ";" });
+  topGrid.appendChild(el("div", { class: "card" }, [
+    el("span", { class: "card-title" }, ["Market Trend"]),
+    el("div", { style: "font-size:20px;font-weight:700;color:var(--bullish);" }, ["Bullish"]),
+    el("div", { style: "font-size:12px;color:var(--text2);" }, ["Strong bullish momentum"]),
+  ]));
+  topGrid.appendChild(el("div", { class: "card" }, [
+    el("span", { class: "card-title" }, ["Advance / Decline"]),
+    el("div", {}, [el("span", { style: "font-size:20px;font-weight:700;color:var(--bullish);" }, ["1423"]), " / ", el("span", { style: "font-size:20px;font-weight:700;color:var(--bearish);" }, ["675"])]),
+  ]));
+  topGrid.appendChild(el("div", { class: "card" }, [
+    el("span", { class: "card-title" }, ["Market Sentiment"]),
+    el("div", { style: "font-size:20px;font-weight:700;text-align:center;" }, ["68%"]),
+    el("div", { style: "font-size:12px;color:var(--bullish);text-align:center;" }, ["Bullish"]),
+  ]));
+  topGrid.appendChild(el("div", { class: "card" }, [
+    el("span", { class: "card-title" }, ["India VIX"]),
+    el("div", {}, [el("span", { style: "font-size:20px;font-weight:700;" }, ["14.32"]), " ", el("span", { style: "font-size:12px;color:var(--bearish);" }, ["-2.41%"])]),
+  ]));
+
+  const mainGrid = el("div", { class: "grid", style: "grid-template-columns:" + (isMobile ? "1fr" : "1.1fr 1.1fr 1.3fr") + ";" });
+  const stocksCardSlot = el("div");
+  stocksCardSlot.appendChild(buildStockCard(FALLBACK_STOCKS, "Loading live data from the backend\u2026"));
+  mainGrid.appendChild(stocksCardSlot);
+  mainGrid.appendChild(buildTradeSetupCard());
+  mainGrid.appendChild(buildOptionChainCard());
+
+  const disclaimer = el("div", { class: "disclaimer" }, [DISCLAIMER]);
+  const content = el("div", { style: "padding:20px;display:flex;flex-direction:column;gap:16px;" }, [topGrid, mainGrid, disclaimer]);
+
+  shell.appendChild(header);
+  shell.appendChild(content);
+  root.appendChild(shell);
+
+  apiFetch("/dashboard/top-bullish").then(function (data) {
+    clear(stocksCardSlot);
+    stocksCardSlot.appendChild(buildStockCard(data.stocks, null));
+  }).catch(function () {
+    clear(stocksCardSlot);
+    stocksCardSlot.appendChild(buildStockCard(FALLBACK_STOCKS, "Could not load live data from the backend \u2014 showing local sample data instead."));
+  });
+}
+
+// ---------------------------------------------------------------------------
+// APP BOOTSTRAP
+// ---------------------------------------------------------------------------
+function boot() {
+  const root = document.getElementById("root");
+  function showAuth() { renderAuthScreen(root, showDashboard); }
+  function showDashboard() { renderDashboard(root, function () { clearToken(); showAuth(); }); }
+  if (getToken()) showDashboard(); else showAuth();
+}
+boot();
+</script>
+</body>
+</html>
