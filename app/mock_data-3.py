@@ -1,0 +1,154 @@
+"""
+MOCK DATA MODE (spec section 19).
+
+Generates realistic-looking stock and option data WITHOUT any broker
+API. This lets the whole app - dashboard, probability engine,
+backtesting - be built and tested before DhanHQ credentials exist.
+
+Later, replace the functions in this file with real calls to the
+DhanHQ API. Nothing else in the app needs to change, because every
+other module only depends on the shape of the data returned here
+(same field names), not on where it came from.
+"""
+
+import random
+
+NIFTY_50_SAMPLE = [
+    "RELIANCE", "HDFCBANK", "ICICIBANK", "INFY", "TCS", "AXISBANK",
+    "LT", "SBIN", "BHARTIARTL", "KOTAKBANK", "ITC", "MARUTI",
+    "SUNPHARMA", "WIPRO", "ONGC", "CIPLA", "TATAMOTORS", "HCLTECH",
+]
+
+
+def _seeded_random(symbol: str) -> random.Random:
+    """Each symbol gets its own stable-ish random stream per process run,
+    so numbers don't jump around wildly between two calls in the same second."""
+    return random.Random(symbol)
+
+
+def generate_market_overview() -> dict:
+    return {
+        "NIFTY": {"ltp": round(24950.40 + random.uniform(-50, 50), 2), "change_pct": round(random.uniform(-1, 1.2), 2)},
+        "BANK_NIFTY": {"ltp": round(53621.45 + random.uniform(-100, 100), 2), "change_pct": round(random.uniform(-1, 1.5), 2)},
+        "SENSEX": {"ltp": round(81330.56 + random.uniform(-150, 150), 2), "change_pct": round(random.uniform(-1, 1), 2)},
+        "INDIA_VIX": {"value": round(14.32 + random.uniform(-2, 2), 2), "change_pct": round(random.uniform(-3, 3), 2)},
+        "market_regime": random.choice(["STRONG_BULLISH", "BULLISH", "SIDEWAYS", "BEARISH", "STRONG_BEARISH"]),
+    }
+
+
+def generate_stock_snapshot(symbol: str) -> dict:
+    rnd = _seeded_random(symbol + str(random.random()))
+    base_price = round(rnd.uniform(200, 4000), 2)
+    return {
+        "symbol": symbol,
+        "ltp": base_price,
+        "change_pct": round(rnd.uniform(-3, 3), 2),
+        "rsi": round(rnd.uniform(20, 80), 1),
+        "volume": rnd.randint(500_000, 20_000_000),
+        "price_vs_ema20": rnd.choice(["above", "below"]),
+        "ema20_vs_ema50": rnd.choice(["above", "below"]),
+        "price_vs_vwap": rnd.choice(["above", "below"]),
+        "atr": round(rnd.uniform(5, 80), 2),
+    }
+
+
+def generate_universe_snapshot(universe: list[str] = NIFTY_50_SAMPLE) -> list[dict]:
+    return [generate_stock_snapshot(sym) for sym in universe]
+
+
+def generate_timeframe_zones() -> dict:
+    """Mock multi-timeframe market bias, similar to a 'Nifty Zone' panel:
+    each timeframe independently mock-classified as bullish/bearish."""
+    timeframes = ["5 MIN", "15 MIN", "30 MIN", "1 HR", "1 DAY", "1 WEEK"]
+    rnd = _seeded_random("timeframe-zones" + str(random.random()))
+    return {tf: rnd.choice(["BULLISH", "BEARISH"]) for tf in timeframes}
+
+
+def generate_advance_decline() -> dict:
+    rnd = _seeded_random("adv-decl" + str(random.random()))
+    advances = rnd.randint(600, 1800)
+    declines = rnd.randint(400, 1600)
+    return {"advances": advances, "declines": declines}
+
+
+def generate_mock_backtest_summary() -> dict:
+    """Generates a plausible-looking calibration report (spec section 10) for
+    demo purposes, since no real trading history exists yet in mock mode.
+    Clearly a simulation - not derived from actual logged trades."""
+    rnd = _seeded_random("backtest-demo")
+    buckets = {}
+    total_trades = 0
+    total_wins = 0
+    for low in range(50, 90, 5):
+        bucket_trades = rnd.randint(15, 60)
+        # win rate roughly tracks the predicted bucket, with some noise,
+        # to look like a reasonably-calibrated (but still fake) model
+        target_rate = (low + 2.5) / 100
+        noise = rnd.uniform(-0.05, 0.05)
+        wins = round(bucket_trades * max(0.3, min(0.95, target_rate + noise)))
+        buckets[f"{low}-{low+5}%"] = {
+            "total_trades": bucket_trades,
+            "wins": wins,
+            "actual_win_rate": round(wins / bucket_trades * 100, 1) if bucket_trades else None,
+        }
+        total_trades += bucket_trades
+        total_wins += wins
+
+    return {
+        "is_demo_data": True,
+        "total_trades": total_trades,
+        "total_wins": total_wins,
+        "overall_win_rate": round(total_wins / total_trades * 100, 1) if total_trades else 0,
+        "buckets": buckets,
+    }
+
+
+def generate_mock_option_chain(underlying: str, spot: float, expiry: str) -> dict:
+    """Builds a mock option chain around the spot price with strikes at round intervals.
+    Includes Greeks, bid/ask and change fields per the full Option Chain spec (section 5)."""
+    step = 100 if underlying == "NIFTY" else (100 if underlying == "BANKNIFTY" else 50)
+    base_strike = round(spot / step) * step
+    strikes = [base_strike + (i * step) for i in range(-4, 5)]
+
+    rnd = _seeded_random(underlying + expiry)
+    calls, puts = [], []
+    for strike in strikes:
+        call_ltp = round(max(1, (spot - strike) * 0.4 + rnd.uniform(20, 60)), 2)
+        put_ltp = round(max(1, (strike - spot) * 0.4 + rnd.uniform(20, 60)), 2)
+        moneyness = abs(strike - spot) / spot
+
+        call_change_pct = round(rnd.uniform(-8, 12), 2)
+        put_change_pct = round(rnd.uniform(-8, 12), 2)
+
+        calls.append({
+            "strike": strike,
+            "ltp": call_ltp,
+            "change_pct": call_change_pct,
+            "oi": rnd.randint(10_000, 500_000),
+            "oi_change_pct": round(rnd.uniform(-20, 40), 1),
+            "iv": round(rnd.uniform(11, 22), 1),
+            "delta": round(max(0.02, min(0.98, 0.5 - (strike - spot) / spot * 3)), 2),
+            "gamma": round(max(0.0005, 0.01 * (1 - min(moneyness * 8, 0.95))), 4),
+            "theta": round(-rnd.uniform(2, 12), 2),
+            "vega": round(rnd.uniform(3, 18) * (1 - min(moneyness * 5, 0.8)), 2),
+            "bid": round(call_ltp - rnd.uniform(0.3, 1.5), 2),
+            "ask": round(call_ltp + rnd.uniform(0.3, 1.5), 2),
+            "volume": rnd.randint(1000, 100_000),
+        })
+        puts.append({
+            "strike": strike,
+            "ltp": put_ltp,
+            "change_pct": put_change_pct,
+            "oi": rnd.randint(10_000, 500_000),
+            "oi_change_pct": round(rnd.uniform(-20, 40), 1),
+            "iv": round(rnd.uniform(11, 22), 1),
+            "delta": round(-max(0.02, min(0.98, 0.5 + (strike - spot) / spot * 3)), 2),
+            "gamma": round(max(0.0005, 0.01 * (1 - min(moneyness * 8, 0.95))), 4),
+            "theta": round(-rnd.uniform(2, 12), 2),
+            "vega": round(rnd.uniform(3, 18) * (1 - min(moneyness * 5, 0.8)), 2),
+            "bid": round(put_ltp - rnd.uniform(0.3, 1.5), 2),
+            "ask": round(put_ltp + rnd.uniform(0.3, 1.5), 2),
+            "volume": rnd.randint(1000, 100_000),
+        })
+
+    return {"underlying": underlying, "spot": spot, "expiry": expiry, "calls": calls, "puts": puts}
