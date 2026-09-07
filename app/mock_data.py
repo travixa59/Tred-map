@@ -169,9 +169,25 @@ def generate_mock_backtest_summary() -> dict:
     }
 
 
+def format_indian_value(n: float) -> str:
+    """Formats a raw contract count into Indian Cr/L shorthand, e.g. 15_500_000 -> '1.55Cr'."""
+    sign = "-" if n < 0 else ""
+    n = abs(n)
+    if n >= 1_00_00_000:
+        return f"{sign}{n / 1_00_00_000:.2f}Cr"
+    if n >= 1_00_000:
+        return f"{sign}{n / 1_00_000:.2f}L"
+    return f"{sign}{n:.0f}"
+
+
 def generate_mock_option_chain(underlying: str, spot: float, expiry: str) -> dict:
     """Builds a mock option chain around the spot price with strikes at round intervals.
-    Includes Greeks, bid/ask and change fields per the full Option Chain spec (section 5)."""
+    Includes Greeks, bid/ask, change fields, and OI-buildup-based bias per strike
+    (spec section 5). The BIAS / FINAL SIGNAL fields are derived from which side
+    (calls or puts) is adding the bigger real OI value at that strike - not from
+    the stock/indicator probability engine. Indicator + AI scoring (probability.py)
+    is only applied afterwards, on top of strikes the OI data already favours -
+    see /options/best-setup, which now ranks by OI buildup first."""
     step = 100 if underlying == "NIFTY" else (100 if underlying == "BANKNIFTY" else 50)
     base_strike = round(spot / step) * step
     strikes = [base_strike + (i * step) for i in range(-4, 5)]
@@ -182,16 +198,28 @@ def generate_mock_option_chain(underlying: str, spot: float, expiry: str) -> dic
         call_ltp = round(max(1, (spot - strike) * 0.4 + rnd.uniform(20, 60)), 2)
         put_ltp = round(max(1, (strike - spot) * 0.4 + rnd.uniform(20, 60)), 2)
         moneyness = abs(strike - spot) / spot
+        # OI concentrates near the money, like a real chain - strikes far from
+        # spot carry much smaller open interest than ATM/near-ATM strikes.
+        oi_scale = max(0.05, 1 - min(moneyness * 6, 0.95))
 
         call_change_pct = round(rnd.uniform(-8, 12), 2)
         put_change_pct = round(rnd.uniform(-8, 12), 2)
+        call_oi = rnd.randint(200_000, 25_000_000)
+        call_oi = round(call_oi * oi_scale) + rnd.randint(50_000, 300_000)
+        put_oi = rnd.randint(200_000, 25_000_000)
+        put_oi = round(put_oi * oi_scale) + rnd.randint(50_000, 300_000)
+        call_oi_chg_pct = round(rnd.uniform(-20, 45), 1)
+        put_oi_chg_pct = round(rnd.uniform(-20, 45), 1)
 
         calls.append({
             "strike": strike,
             "ltp": call_ltp,
             "change_pct": call_change_pct,
-            "oi": rnd.randint(10_000, 500_000),
-            "oi_change_pct": round(rnd.uniform(-20, 40), 1),
+            "oi": call_oi,
+            "oi_fmt": format_indian_value(call_oi),
+            "oi_change_pct": call_oi_chg_pct,
+            "oi_change_value": round(call_oi * call_oi_chg_pct / 100),
+            "oi_change_fmt": format_indian_value(call_oi * call_oi_chg_pct / 100),
             "iv": round(rnd.uniform(11, 22), 1),
             "delta": round(max(0.02, min(0.98, 0.5 - (strike - spot) / spot * 3)), 2),
             "gamma": round(max(0.0005, 0.01 * (1 - min(moneyness * 8, 0.95))), 4),
@@ -205,8 +233,11 @@ def generate_mock_option_chain(underlying: str, spot: float, expiry: str) -> dic
             "strike": strike,
             "ltp": put_ltp,
             "change_pct": put_change_pct,
-            "oi": rnd.randint(10_000, 500_000),
-            "oi_change_pct": round(rnd.uniform(-20, 40), 1),
+            "oi": put_oi,
+            "oi_fmt": format_indian_value(put_oi),
+            "oi_change_pct": put_oi_chg_pct,
+            "oi_change_value": round(put_oi * put_oi_chg_pct / 100),
+            "oi_change_fmt": format_indian_value(put_oi * put_oi_chg_pct / 100),
             "iv": round(rnd.uniform(11, 22), 1),
             "delta": round(-max(0.02, min(0.98, 0.5 + (strike - spot) / spot * 3)), 2),
             "gamma": round(max(0.0005, 0.01 * (1 - min(moneyness * 8, 0.95))), 4),
@@ -217,4 +248,56 @@ def generate_mock_option_chain(underlying: str, spot: float, expiry: str) -> dic
             "volume": rnd.randint(1000, 100_000),
         })
 
-    return {"underlying": underlying, "spot": spot, "expiry": expiry, "calls": calls, "puts": puts}
+    # --- OI-buildup multiplier vs the chain's own average add, per side ---
+    call_adds = [abs(c["oi_change_value"]) for c in calls]
+    put_adds = [abs(p["oi_change_value"]) for p in puts]
+    avg_call_add = (sum(call_adds) / len(call_adds)) or 1
+    avg_put_add = (sum(put_adds) / len(put_adds)) or 1
+    for c in calls:
+        c["oi_change_multiplier"] = round(abs(c["oi_change_value"]) / avg_call_add, 1)
+    for p in puts:
+        p["oi_change_multiplier"] = round(abs(p["oi_change_value"]) / avg_put_add, 1)
+
+    # --- Per-strike BIAS from real OI value added, not from indicators ---
+    # Call OI building up faster than Put OI at a strike = writers defending
+    # that level as resistance -> bearish (PUT BUY). The reverse = support
+    # forming -> bullish (CALL BUY). A close contest = MIXED OI.
+    total_call_add = sum(c["oi_change_value"] for c in calls)
+    total_put_add = sum(p["oi_change_value"] for p in puts)
+    overall_bias = "BEARISH" if total_call_add >= total_put_add else "BULLISH"
+    overall_final_signal = "PUT BUY" if overall_bias == "BEARISH" else "CALL BUY"
+
+    for c, p in zip(calls, puts):
+        call_add, put_add = c["oi_change_value"], p["oi_change_value"]
+        bigger = max(abs(call_add), abs(put_add)) or 1
+        gap_ratio = abs(call_add - put_add) / bigger
+        if gap_ratio < 0.15:
+            bias = "MIXED OI"
+            final_signal = overall_final_signal
+        elif call_add > put_add:
+            bias = "PUT BUY"
+            final_signal = "PUT BUY"
+        else:
+            bias = "CALL BUY"
+            final_signal = "CALL BUY"
+        c["bias"] = bias
+        c["final_signal"] = final_signal
+        p["bias"] = bias
+        p["final_signal"] = final_signal
+
+    return {
+        "underlying": underlying, "spot": spot, "expiry": expiry, "calls": calls, "puts": puts,
+        "overall_oi_bias": overall_bias,
+        "overall_final_signal": overall_final_signal,
+        "timeframe_oi_bias": generate_oi_bias_timeframes(overall_bias),
+    }
+
+
+def generate_oi_bias_timeframes(overall_bias: str) -> dict:
+    """Mock multi-timeframe OI bias strip (OI / LATEST / 3M / 5M / 15M / 30M),
+    mostly agreeing with the chain-wide OI bias with a little noise per timeframe -
+    mirrors the reference dashboard's bias row."""
+    rnd = _seeded_random("oi-bias-tf" + str(random.random()))
+    other = "BULLISH" if overall_bias == "BEARISH" else "BEARISH"
+    labels = ["OI", "LATEST", "3M", "5M", "15M", "30M"]
+    return {lbl: (overall_bias if rnd.random() > 0.15 else other) for lbl in labels}
