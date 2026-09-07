@@ -92,10 +92,21 @@ def top_bearish(current_user: models.User = Depends(auth.get_current_user)):
     return {"stocks": scored[:10], "disclaimer": DISCLAIMER}
 
 
+def _spot_for(underlying: str, overview: dict) -> float:
+    """Maps an underlying symbol to its LTP from the market overview.
+    (Previously this only branched NIFTY vs BANK_NIFTY, so SENSEX silently
+    fell through to the BANK_NIFTY price - fixed here.)"""
+    if underlying == "BANKNIFTY":
+        return overview["BANK_NIFTY"]["ltp"]
+    if underlying == "SENSEX":
+        return overview["SENSEX"]["ltp"]
+    return overview["NIFTY"]["ltp"]
+
+
 @app.get("/dashboard/nifty-zone")
 def nifty_zone(underlying: str = "NIFTY", current_user: models.User = Depends(auth.get_current_user)):
     overview = mock_data.generate_market_overview()
-    spot = overview["NIFTY"]["ltp"] if underlying == "NIFTY" else overview["BANK_NIFTY"]["ltp"]
+    spot = _spot_for(underlying, overview)
     return {**mock_data.generate_nifty_zone(spot, underlying), "disclaimer": DISCLAIMER}
 
 
@@ -114,7 +125,7 @@ def option_chain(
     current_user: models.User = Depends(auth.get_current_user),
 ):
     overview = mock_data.generate_market_overview()
-    spot = overview["NIFTY"]["ltp"] if underlying == "NIFTY" else overview["BANK_NIFTY"]["ltp"]
+    spot = _spot_for(underlying, overview)
     chain = mock_data.generate_mock_option_chain(underlying, spot, expiry)
     return {**chain, "disclaimer": DISCLAIMER}
 
@@ -126,7 +137,7 @@ def best_setup(
     current_user: models.User = Depends(auth.get_current_user),
 ):
     overview = mock_data.generate_market_overview()
-    spot = overview["NIFTY"]["ltp"] if underlying == "NIFTY" else overview["BANK_NIFTY"]["ltp"]
+    spot = _spot_for(underlying, overview)
     chain = mock_data.generate_mock_option_chain(underlying, spot, expiry)
 
     # crude underlying-direction probability, reused from the stock engine's shape
@@ -217,7 +228,7 @@ def ai_trade_finder(
     current_user: models.User = Depends(auth.get_current_user),
 ):
     overview = mock_data.generate_market_overview()
-    spot = overview["NIFTY"]["ltp"] if underlying == "NIFTY" else overview["BANK_NIFTY"]["ltp"]
+    spot = _spot_for(underlying, overview)
     chain = mock_data.generate_mock_option_chain(underlying, spot, expiry)
 
     direction_snapshot = mock_data.generate_stock_snapshot(underlying)
