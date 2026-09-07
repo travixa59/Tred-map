@@ -133,10 +133,17 @@ def best_setup(
     direction_snapshot = mock_data.generate_stock_snapshot(underlying)
     underlying_result = probability.score_stock(direction_snapshot)
 
-    best_call = max(chain["calls"], key=lambda c: c["oi_change_pct"])
+    # Step 1 - OPTION CHAIN FIRST: only strikes where real OI buildup (the "big
+    # value", not just %) already favours that side get considered at all; among
+    # those, take the one with the biggest absolute OI value added.
+    # Step 2 - indicator/AI is applied AFTER, only to score/explain the pick -
+    # it never overrides which strike the OI data chose.
+    oi_favored_calls = [c for c in chain["calls"] if c["final_signal"] == "CALL BUY"]
+    best_call = max(oi_favored_calls or chain["calls"], key=lambda c: abs(c["oi_change_value"]))
     call_score = probability.score_option("BULLISH", best_call["oi_change_pct"], best_call["iv"], underlying_result.probability)
 
-    best_put = max(chain["puts"], key=lambda p: p["oi_change_pct"])
+    oi_favored_puts = [p for p in chain["puts"] if p["final_signal"] == "PUT BUY"]
+    best_put = max(oi_favored_puts or chain["puts"], key=lambda p: abs(p["oi_change_value"]))
     put_score = probability.score_option("BEARISH", best_put["oi_change_pct"], best_put["iv"], 100 - underlying_result.probability)
 
     def build_setup(option, score, option_type):
@@ -306,4 +313,3 @@ def backtest_summary(db: Session = Depends(get_db), current_user: models.User = 
 @app.get("/health")
 def health():
     return {"status": "ok", "mode": "MOCK_DATA", "time": datetime.utcnow()}
-    
