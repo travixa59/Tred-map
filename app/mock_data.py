@@ -188,7 +188,7 @@ def generate_mock_option_chain(underlying: str, spot: float, expiry: str) -> dic
     the stock/indicator probability engine. Indicator + AI scoring (probability.py)
     is only applied afterwards, on top of strikes the OI data already favours -
     see /options/best-setup, which now ranks by OI buildup first."""
-    step = 100 if underlying == "NIFTY" else (100 if underlying == "BANKNIFTY" else 50)
+    step = 100 if underlying in ("NIFTY", "BANKNIFTY", "SENSEX") else 50
     base_strike = round(spot / step) * step
     strikes = [base_strike + (i * step) for i in range(-4, 5)]
 
