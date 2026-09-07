@@ -92,6 +92,18 @@ def top_bearish(current_user: models.User = Depends(auth.get_current_user)):
     return {"stocks": scored[:10], "disclaimer": DISCLAIMER}
 
 
+@app.get("/dashboard/nifty-zone")
+def nifty_zone(underlying: str = "NIFTY", current_user: models.User = Depends(auth.get_current_user)):
+    overview = mock_data.generate_market_overview()
+    spot = overview["NIFTY"]["ltp"] if underlying == "NIFTY" else overview["BANK_NIFTY"]["ltp"]
+    return {**mock_data.generate_nifty_zone(spot, underlying), "disclaimer": DISCLAIMER}
+
+
+@app.get("/dashboard/market-breadth")
+def market_breadth(current_user: models.User = Depends(auth.get_current_user)):
+    return {**mock_data.generate_market_breadth(), "disclaimer": DISCLAIMER}
+
+
 # ---------------------------------------------------------------------------
 # OPTION CHAIN + BEST STRIKE FINDER (spec sections 5-6)
 # ---------------------------------------------------------------------------
@@ -294,3 +306,4 @@ def backtest_summary(db: Session = Depends(get_db), current_user: models.User = 
 @app.get("/health")
 def health():
     return {"status": "ok", "mode": "MOCK_DATA", "time": datetime.utcnow()}
+    
