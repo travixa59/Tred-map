@@ -1,0 +1,1882 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>AI Trading Edge</title>
+<style>
+  :root {
+    --bg: #F3F5F9; --card: #FFFFFF; --border: #E3E8F0;
+    --text: #10151F; --text2: #667085;
+    --bullish: #0E9F6E; --bearish: #E02424; --ai: #7C5CFC; --info: #2563EB;
+    --call-bg: #E7F8F1; --call-text: #0E9F6E;
+    --put-bg: #FDECEE; --put-text: #E02424;
+    --strike-bg: #EEF0FF; --atm-bg: #E3DBFB;
+    --shadow: 0 1px 2px rgba(16,24,40,0.04), 0 1px 3px rgba(16,24,40,0.06);
+    --sidebar-w: 220px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  table { border-collapse: collapse; width: 100%; }
+  ::-webkit-scrollbar { height: 6px; width: 6px; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  .card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+    padding: 16px; display: flex; flex-direction: column; gap: 12px; min-width: 0;
+    box-shadow: var(--shadow);
+  }
+  .card-title { font-size: 13px; font-weight: 600; letter-spacing: 0.4px; color: var(--text2); }
+  input {
+    width: 100%; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border);
+    background: var(--bg); color: var(--text); font-size: 14px;
+  }
+  button { font-family: inherit; }
+  .btn-primary {
+    padding: 12px 0; border-radius: 8px; border: none; cursor: pointer;
+    background: var(--info); color: #fff; font-weight: 600; font-size: 14px; width: 100%;
+  }
+  .btn-primary:disabled { opacity: 0.7; cursor: default; }
+  .tab-btn {
+    flex: 1; padding: 8px 0; border-radius: 6px; border: none; cursor: pointer;
+    font-size: 13px; font-weight: 600; background: transparent; color: var(--text2);
+  }
+  .tab-btn.active { background: var(--info); color: #fff; }
+  .grid { display: grid; gap: 16px; }
+  #root { min-height: 100vh; }
+  .disclaimer { font-size: 11px; color: var(--text2); text-align: center; padding: 4px 0 12px; }
+  .nav-item { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 8px; margin-bottom: 2px; cursor: pointer; font-size: 13px; color: var(--text2); }
+  .nav-item.active { background: var(--info); color: #fff; }
+  .mobile-nav-item { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; cursor: pointer; color: var(--text2); }
+  .mobile-nav-item.active { color: var(--info); }
+
+  /* --- slide-in/out sidebar drawer --- */
+  .sidebar-drawer {
+    position: fixed; top: 0; left: 0; height: 100vh; width: var(--sidebar-w);
+    background: var(--card); border-right: 1px solid var(--border); padding: 12px;
+    padding-top: 76px; z-index: 40; transform: translateX(-100%);
+    transition: transform 0.25s ease; overflow-y: auto;
+  }
+  .sidebar-drawer.open { transform: translateX(0); box-shadow: 2px 0 12px rgba(16,24,40,0.10); }
+  .sidebar-overlay {
+    position: fixed; inset: 0; background: rgba(16,20,30,0.35); z-index: 30;
+    opacity: 0; pointer-events: none; transition: opacity 0.25s ease;
+  }
+  .sidebar-overlay.open { opacity: 1; pointer-events: auto; }
+  .menu-toggle {
+    width: 34px; height: 34px; border-radius: 8px; display: flex; align-items: center;
+    justify-content: center; cursor: pointer; border: 1px solid var(--border); background: var(--card);
+    flex-shrink: 0;
+  }
+  .refresh-btn.spin svg { animation: spin-rotate 0.7s linear; }
+  @keyframes spin-rotate { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+  /* --- ticker strip --- */
+  .ticker-wrap {
+    overflow: hidden; white-space: nowrap; background: var(--card);
+    border-bottom: 1px solid var(--border); padding: 8px 0; position: sticky; top: 64px; z-index: 9;
+  }
+  .ticker-track {
+    display: inline-flex; gap: 28px; padding-left: 100%;
+    animation: ticker-scroll 32s linear infinite;
+  }
+  .ticker-wrap:hover .ticker-track { animation-play-state: paused; }
+  @keyframes ticker-scroll {
+    from { transform: translateX(0); }
+    to { transform: translateX(-100%); }
+  }
+  .ticker-item { display: inline-flex; align-items: baseline; gap: 6px; font-size: 12px; }
+  .ticker-item .tname { font-weight: 700; color: var(--text); }
+  .ticker-item .tval { color: var(--text2); }
+
+  /* --- header stat boxes (NIFTY/BANK NIFTY/SENSEX/ADX/RSI etc.) --- */
+  .stat-strip {
+    display: flex; gap: 8px; overflow-x: auto; flex: 1; min-width: 0;
+    scrollbar-width: none; padding: 4px 0;
+  }
+  .stat-strip::-webkit-scrollbar { display: none; }
+  .stat-box {
+    flex-shrink: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 1px; padding: 4px 10px; border: 1px solid var(--border); border-radius: 8px;
+    background: var(--bg); min-width: 68px; line-height: 1.15;
+  }
+  .stat-box .sname { font-size: 9px; font-weight: 700; letter-spacing: 0.3px; color: var(--text2); }
+  .stat-box .sval { font-size: 12px; font-weight: 700; color: var(--text); white-space: nowrap; }
+  .stat-box .schg { font-size: 10px; font-weight: 600; white-space: nowrap; }
+
+  /* --- settings / alerts toggle switch --- */
+  .switch { position: relative; display: inline-block; width: 40px; height: 22px; flex-shrink: 0; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .switch-track {
+    position: absolute; cursor: pointer; inset: 0; background: var(--border);
+    border-radius: 22px; transition: 0.2s;
+  }
+  .switch-track:before {
+    position: absolute; content: ""; height: 16px; width: 16px; left: 3px; bottom: 3px;
+    background: #fff; border-radius: 50%; transition: 0.2s;
+  }
+  .switch input:checked + .switch-track { background: var(--info); }
+  .switch input:checked + .switch-track:before { transform: translateX(18px); }
+  .settings-row {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 10px 0; border-top: 1px solid var(--border);
+  }
+  .settings-row:first-of-type { border-top: none; }
+  .rule-chip {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 12px;
+  }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script>
+"use strict";
+
+// ---------------------------------------------------------------------------
+// BACKEND CONNECTION (the only network calls this page makes)
+// ---------------------------------------------------------------------------
+const API_BASE = "https://tred-map.onrender.com";
+const DISCLAIMER = "Probability is an analytical estimate based on market data and historical patterns. It does not guarantee profit. Trading and options trading involve substantial risk.";
+
+function getToken() { return localStorage.getItem("ai_trading_edge_token"); }
+function setToken(t) { localStorage.setItem("ai_trading_edge_token", t); }
+function clearToken() { localStorage.removeItem("ai_trading_edge_token"); }
+
+// ---------------------------------------------------------------------------
+// WATCHLIST (stored locally on this device)
+// ---------------------------------------------------------------------------
+const WATCHLIST_KEY = "ai_trading_edge_watchlist";
+function getWatchlist() {
+  try { return JSON.parse(localStorage.getItem(WATCHLIST_KEY) || "[]"); }
+  catch (e) { return []; }
+}
+function saveWatchlist(list) { localStorage.setItem(WATCHLIST_KEY, JSON.stringify(list)); }
+function isWatchlisted(symbol) { return getWatchlist().some(function (w) { return w.symbol === symbol; }); }
+function upsertWatchlistItem(item) {
+  const list = getWatchlist();
+  const idx = list.findIndex(function (w) { return w.symbol === item.symbol; });
+  if (idx >= 0) list[idx] = Object.assign({}, list[idx], item);
+  else list.push(item);
+  saveWatchlist(list);
+  return list;
+}
+function removeWatchlistItem(symbol) {
+  const list = getWatchlist().filter(function (w) { return w.symbol !== symbol; });
+  saveWatchlist(list);
+  return list;
+}
+
+// ---------------------------------------------------------------------------
+// SETTINGS (stored locally on this device)
+// ---------------------------------------------------------------------------
+const SETTINGS_KEY = "ai_trading_edge_settings";
+const DEFAULT_SETTINGS = {
+  default_underlying: "NIFTY",
+  alert_probability_threshold: 70,
+  desktop_notifications: false,
+  compact_header_stats: false,
+};
+function getSettings() {
+  try { return Object.assign({}, DEFAULT_SETTINGS, JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}")); }
+  catch (e) { return Object.assign({}, DEFAULT_SETTINGS); }
+}
+function saveSettings(patch) {
+  const merged = Object.assign({}, getSettings(), patch);
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(merged));
+  return merged;
+}
+
+// ---------------------------------------------------------------------------
+// ALERT RULES (stored locally on this device; checked client-side against
+// live scanner data since the mock backend has no push-alert service yet)
+// ---------------------------------------------------------------------------
+const ALERT_RULES_KEY = "ai_trading_edge_alert_rules";
+function getAlertRules() {
+  try { return JSON.parse(localStorage.getItem(ALERT_RULES_KEY) || "[]"); }
+  catch (e) { return []; }
+}
+function saveAlertRules(rules) { localStorage.setItem(ALERT_RULES_KEY, JSON.stringify(rules)); }
+function addAlertRule(rule) {
+  const rules = getAlertRules();
+  rules.push(Object.assign({ id: String(Date.now()) }, rule));
+  saveAlertRules(rules);
+  return rules;
+}
+function removeAlertRule(id) {
+  const rules = getAlertRules().filter(function (r) { return r.id !== id; });
+  saveAlertRules(rules);
+  return rules;
+}
+function notifyIfEnabled(title, body) {
+  if (!getSettings().desktop_notifications) return;
+  if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
+  try { new Notification(title, { body: body }); } catch (e) { /* ignore */ }
+}
+
+async function apiFetch(path, options) {
+  options = options || {};
+  const token = getToken();
+  const headers = Object.assign({}, options.headers || {});
+  if (token) headers["Authorization"] = "Bearer " + token;
+  const res = await fetch(API_BASE + path, Object.assign({}, options, { headers: headers }));
+  if (!res.ok) {
+    const text = await res.text().catch(function () { return ""; });
+    throw new Error("API " + path + " failed (" + res.status + "): " + text);
+  }
+  return res.json();
+}
+
+async function registerUser(email, password) {
+  const res = await fetch(API_BASE + "/auth/register", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: email, password: password }),
+  });
+  if (!res.ok) {
+    const j = await res.json().catch(function () { return {}; });
+    throw new Error(j.detail || "Registration failed");
+  }
+  return res.json();
+}
+
+async function loginUser(email, password) {
+  const body = new URLSearchParams();
+  body.append("username", email);
+  body.append("password", password);
+  const res = await fetch(API_BASE + "/auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: body.toString(),
+  });
+  if (!res.ok) {
+    const j = await res.json().catch(function () { return {}; });
+    throw new Error(j.detail || "Login failed");
+  }
+  return res.json();
+}
+
+// ---------------------------------------------------------------------------
+// SMALL DOM HELPERS (no framework)
+// ---------------------------------------------------------------------------
+function el(tag, attrs, children) {
+  const node = document.createElement(tag);
+  attrs = attrs || {};
+  Object.keys(attrs).forEach(function (k) {
+    if (k === "class") node.className = attrs[k];
+    else if (k === "style") node.setAttribute("style", attrs[k]);
+    else if (k.indexOf("on") === 0 && typeof attrs[k] === "function") node.addEventListener(k.slice(2).toLowerCase(), attrs[k]);
+    else node.setAttribute(k, attrs[k]);
+  });
+  (children || []).forEach(function (c) {
+    if (c === null || c === undefined) return;
+    node.appendChild(typeof c === "string" ? document.createTextNode(c) : c);
+  });
+  return node;
+}
+function clear(node) { while (node.firstChild) node.removeChild(node.firstChild); }
+function fmtINR(n) { return Number(n).toLocaleString("en-IN"); }
+
+function starSvg(filled) {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("width", "16"); svg.setAttribute("height", "16");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("fill", filled ? "#F59E0B" : "none");
+  svg.setAttribute("stroke", filled ? "#F59E0B" : "var(--text2)");
+  svg.setAttribute("stroke-width", "2"); svg.setAttribute("stroke-linecap", "round"); svg.setAttribute("stroke-linejoin", "round");
+  svg.innerHTML = '<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>';
+  return svg;
+}
+function buildWatchStar(item) {
+  const wrap = el("span", { style: "cursor:pointer;display:inline-flex;", title: "Toggle watchlist" });
+  function paint() { clear(wrap); wrap.appendChild(starSvg(isWatchlisted(item.symbol))); }
+  paint();
+  wrap.addEventListener("click", function (e) {
+    e.stopPropagation();
+    if (isWatchlisted(item.symbol)) removeWatchlistItem(item.symbol);
+    else upsertWatchlistItem(Object.assign({ added_at: Date.now() }, item));
+    paint();
+  });
+  return wrap;
+}
+
+// ---------------------------------------------------------------------------
+// ICONS (tiny inline SVGs)
+// ---------------------------------------------------------------------------
+function icon(name, size, color) {
+  size = size || 16; color = color || "currentColor";
+  const paths = {
+    home: '<path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 22V12h6v10"/>',
+    scan: '<path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/>',
+    trendUp: '<polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/>',
+    bar: '<line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/>',
+    brain: '<path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96.44 2.5 2.5 0 0 1-2.96-3.08 3 3 0 0 1-.34-5.58 2.5 2.5 0 0 1 1.32-4.24 2.5 2.5 0 0 1 1.98-3A2.5 2.5 0 0 1 9.5 2Z"/><path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96.44 2.5 2.5 0 0 0 2.96-3.08 3 3 0 0 0 .34-5.58 2.5 2.5 0 0 0-1.32-4.24 2.5 2.5 0 0 0-1.98-3A2.5 2.5 0 0 0 14.5 2Z"/>',
+    star: '<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>',
+    wallet: '<path d="M20 12V8H6a2 2 0 0 1-2-2c0-1.1.9-2 2-2h12v4"/><path d="M4 6v12c0 1.1.9 2 2 2h14v-4"/><path d="M18 12a2 2 0 0 0 0 4h4v-4Z"/>',
+    bell: '<path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>',
+    history: '<path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><path d="M12 7v5l4 2"/>',
+    settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
+    help: '<circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/>',
+    user: '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+    circle: '<circle cx="12" cy="12" r="10"/>',
+    menu: '<line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>',
+    grid: '<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>',
+    refresh: '<polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.13-3.36L23 10"/><path d="M20.49 15a9 9 0 01-14.13 3.36L1 14"/>',
+  };
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("width", size); svg.setAttribute("height", size);
+  svg.setAttribute("viewBox", "0 0 24 24"); svg.setAttribute("fill", "none");
+  svg.setAttribute("stroke", color); svg.setAttribute("stroke-width", "2");
+  svg.setAttribute("stroke-linecap", "round"); svg.setAttribute("stroke-linejoin", "round");
+  svg.innerHTML = paths[name] || "";
+  return svg;
+}
+
+// ---------------------------------------------------------------------------
+// AUTH SCREEN
+// ---------------------------------------------------------------------------
+function renderAuthScreen(root, onAuthed) {
+  clear(root);
+  let mode = "login";
+
+  const wrap = el("div", { style: "min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;" });
+  const box = el("div", { style: "width:100%;max-width:360px;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:24px;" });
+
+  const header = el("div", { style: "display:flex;align-items:center;gap:8px;margin-bottom:20px;justify-content:center;" }, [
+    el("div", { style: "width:32px;height:32px;border-radius:8px;background:var(--ai);display:flex;align-items:center;justify-content:center;" }, [icon("brain", 18, "#fff")]),
+    el("span", { style: "font-weight:700;font-size:16px;" }, ["AI TRADING EDGE"]),
+  ]);
+
+  const loginTab = el("button", { class: "tab-btn active", type: "button" }, ["Log in"]);
+  const registerTab = el("button", { class: "tab-btn", type: "button" }, ["Register"]);
+  const tabRow = el("div", { style: "display:flex;gap:4px;margin-bottom:20px;background:var(--bg);border-radius:8px;padding:4px;" }, [loginTab, registerTab]);
+
+  const emailInput = el("input", { type: "email", placeholder: "you@example.com" });
+  const passwordInput = el("input", { type: "password", placeholder: "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022" });
+  const errorBox = el("div", { style: "font-size:12px;color:var(--bearish);display:none;" });
+  const wakingBox = el("div", { style: "font-size:11px;color:var(--text2);display:none;" }, ["Server is waking up (free tier) \u2014 this can take up to a minute on the first request\u2026"]);
+  const submitBtn = el("button", { class: "btn-primary", type: "submit" }, ["Log in"]);
+
+  function setMode(m) {
+    mode = m;
+    loginTab.className = "tab-btn" + (m === "login" ? " active" : "");
+    registerTab.className = "tab-btn" + (m === "register" ? " active" : "");
+    submitBtn.textContent = m === "login" ? "Log in" : "Create account";
+    errorBox.style.display = "none";
+  }
+  loginTab.addEventListener("click", function () { setMode("login"); });
+  registerTab.addEventListener("click", function () { setMode("register"); });
+
+  const form = el("form", { style: "display:flex;flex-direction:column;gap:12px;" }, [
+    el("div", {}, [el("label", { style: "font-size:12px;color:var(--text2);display:block;margin-bottom:4px;" }, ["Email"]), emailInput]),
+    el("div", {}, [el("label", { style: "font-size:12px;color:var(--text2);display:block;margin-bottom:4px;" }, ["Password"]), passwordInput]),
+    errorBox, wakingBox, submitBtn,
+  ]);
+
+  form.addEventListener("submit", async function (e) {
+    e.preventDefault();
+    errorBox.style.display = "none";
+    const email = emailInput.value.trim();
+    const password = passwordInput.value;
+    if (!email || !password) {
+      errorBox.textContent = "Enter both email and password.";
+      errorBox.style.display = "block";
+      return;
+    }
+    submitBtn.disabled = true;
+    submitBtn.textContent = "Please wait\u2026";
+    const wakeTimer = setTimeout(function () { wakingBox.style.display = "block"; }, 4000);
+    try {
+      const data = mode === "login" ? await loginUser(email, password) : await registerUser(email, password);
+      setToken(data.access_token);
+      onAuthed();
+    } catch (err) {
+      errorBox.textContent = err.message || "Something went wrong.";
+      errorBox.style.display = "block";
+    } finally {
+      clearTimeout(wakeTimer);
+      wakingBox.style.display = "none";
+      submitBtn.disabled = false;
+      submitBtn.textContent = mode === "login" ? "Log in" : "Create account";
+    }
+  });
+
+  const footer = el("div", { style: "font-size:10px;color:var(--text2);text-align:center;margin-top:16px;" }, [DISCLAIMER]);
+
+  box.appendChild(header); box.appendChild(tabRow); box.appendChild(form); box.appendChild(footer);
+  wrap.appendChild(box);
+  root.appendChild(wrap);
+}
+
+// ---------------------------------------------------------------------------
+// MOCK DATA (fallback if the live backend call fails or is still loading)
+// ---------------------------------------------------------------------------
+const FALLBACK_STOCKS = [
+  { symbol: "RELIANCE", ltp: 2952.4, probability: 84 },
+  { symbol: "HDFCBANK", ltp: 1678.85, probability: 81 },
+  { symbol: "ICICIBANK", ltp: 1132.6, probability: 79 },
+  { symbol: "SBIN", ltp: 812.35, probability: 77 },
+  { symbol: "INFY", ltp: 1498.25, probability: 75 },
+  { symbol: "TCS", ltp: 3845.6, probability: 73 },
+  { symbol: "AXISBANK", ltp: 1287.1, probability: 72 },
+  { symbol: "LT", ltp: 3456.2, probability: 71 },
+  { symbol: "ITC", ltp: 456.75, probability: 69 },
+  { symbol: "KOTAKBANK", ltp: 1812.65, probability: 66 },
+];
+const OPTION_CHAIN_ROWS = [
+  { strike: 24700, callOiChg: 22.4, callLtp: 253.15, callProb: 65, putOiChg: 28.7, putLtp: 97.6, putProb: 68 },
+  { strike: 24800, callOiChg: 35.7, callLtp: 189.2, callProb: 73, putOiChg: 36.8, putLtp: 135.2, putProb: 73 },
+  { strike: 24900, callOiChg: 41.3, callLtp: 136.45, callProb: 72, putOiChg: 41.1, putLtp: 186.4, putProb: 78, atm: true },
+  { strike: 25000, callOiChg: 28.6, callLtp: 95.1, callProb: 68, putOiChg: 39.6, putLtp: 241.15, putProb: 73 },
+  { strike: 25100, callOiChg: 18.2, callLtp: 63.25, callProb: 61, putOiChg: 22.4, putLtp: 308.45, putProb: 61 },
+];
+
+function buildStockCard(stocks, note) {
+  const card = el("div", { class: "card" }, [el("span", { class: "card-title" }, ["Top 10 Bullish Stocks"])]);
+  if (note) card.appendChild(el("div", { style: "font-size:11px;color:#F59E0B;" }, [note]));
+
+  const table = el("table", { style: "font-size:13px;" });
+  const thead = el("thead", {}, [el("tr", { style: "color:var(--text2);font-size:11px;text-align:left;" }, [
+    el("th", { style: "padding:4px 6px;" }, ["#"]),
+    el("th", { style: "padding:4px 6px;" }, ["Stock"]),
+    el("th", { style: "padding:4px 6px;" }, ["Price"]),
+    el("th", { style: "padding:4px 6px;" }, ["Prob."]),
+  ])]);
+  const tbody = el("tbody");
+  stocks.slice(0, 10).forEach(function (s, idx) {
+    tbody.appendChild(el("tr", { style: "border-top:1px solid var(--border);" }, [
+      el("td", { style: "padding:6px;color:var(--text2);" }, [String(idx + 1)]),
+      el("td", { style: "padding:6px;font-weight:600;" }, [s.symbol]),
+      el("td", { style: "padding:6px;" }, ["\u20B9" + fmtINR(s.ltp)]),
+      el("td", { style: "padding:6px;color:var(--bullish);font-weight:600;" }, [s.probability + "%"]),
+    ]));
+  });
+  table.appendChild(thead); table.appendChild(tbody);
+  card.appendChild(el("div", { style: "overflow-x:auto;" }, [table]));
+  return card;
+}
+
+function buildOptionChainCard() {
+  const card = el("div", { class: "card" }, [el("span", { class: "card-title" }, ["Option Chain \u2014 NIFTY"])]);
+  const header = el("div", { style: "display:flex;gap:8px;font-size:11px;font-weight:700;" }, [
+    el("div", { style: "flex:1;text-align:center;padding:6px;border-radius:6px;background:var(--call-bg);color:var(--bullish);" }, ["CALLS (CE)"]),
+    el("div", { style: "flex:1;text-align:center;padding:6px;border-radius:6px;background:var(--put-bg);color:var(--bearish);" }, ["PUTS (PE)"]),
+  ]);
+  const table = el("table", { style: "font-size:11px;" });
+  const thead = el("thead", {}, [el("tr", { style: "color:var(--text2);text-align:center;" }, [
+    el("th", { style: "padding:4px;" }, ["OI Chg"]), el("th", { style: "padding:4px;" }, ["LTP"]), el("th", { style: "padding:4px;" }, ["Prob."]),
+    el("th", { style: "padding:4px;background:var(--strike-bg);" }, ["Strike"]),
+    el("th", { style: "padding:4px;" }, ["OI Chg"]), el("th", { style: "padding:4px;" }, ["LTP"]), el("th", { style: "padding:4px;" }, ["Prob."]),
+  ])]);
+  const tbody = el("tbody");
+  OPTION_CHAIN_ROWS.forEach(function (r) {
+    tbody.appendChild(el("tr", { style: "border-top:1px solid var(--border);text-align:center;" }, [
+      el("td", { style: "padding:5px;color:" + (r.callOiChg >= 0 ? "var(--bullish)" : "var(--bearish)") + ";" }, ["+" + r.callOiChg + "%"]),
+      el("td", { style: "padding:5px;" }, [String(r.callLtp)]),
+      el("td", { style: "padding:5px;" }, [r.callProb + "%"]),
+      el("td", { style: "padding:5px;font-weight:700;background:" + (r.atm ? "var(--atm-bg)" : "transparent") + ";" }, [fmtINR(r.strike)]),
+      el("td", { style: "padding:5px;color:" + (r.putOiChg >= 0 ? "var(--bullish)" : "var(--bearish)") + ";" }, ["+" + r.putOiChg + "%"]),
+      el("td", { style: "padding:5px;" }, [String(r.putLtp)]),
+      el("td", { style: "padding:5px;" }, [r.putProb + "%"]),
+    ]));
+  });
+  table.appendChild(thead); table.appendChild(tbody);
+  card.appendChild(header);
+  card.appendChild(el("div", { style: "overflow-x:auto;" }, [table]));
+  card.appendChild(el("div", { style: "font-size:12px;color:var(--text2);" }, ["Spot: ", el("span", { style: "color:var(--text);font-weight:600;" }, ["24,834.85"]), " ", el("span", { style: "color:var(--bullish);" }, ["(+1.02%)"])]));
+  return card;
+}
+
+function buildTradeSetupCard() {
+  const t = { symbol: "NIFTY", strike: 25000, type: "CE", prob: 73, buyLow: 185, buyHigh: 190, t1: 205, t2: 225, t3: 245, sl: 170, rr: "1 : 2.3", expiry: "30 Sep 2026" };
+  const card = el("div", { class: "card" }, [el("span", { class: "card-title" }, ["AI Option Trade Setup \u2014 NIFTY"])]);
+  card.appendChild(el("div", { style: "display:flex;align-items:center;justify-content:space-between;" }, [
+    el("span", { style: "font-size:16px;font-weight:700;" }, [t.symbol + " " + fmtINR(t.strike) + " " + t.type]),
+    el("span", { style: "font-size:11px;font-weight:600;color:#08331F;background:var(--bullish);padding:3px 8px;border-radius:6px;" }, ["BUY"]),
+  ]));
+  card.appendChild(el("span", { style: "font-size:12px;color:var(--text2);" }, ["Estimated probability ", el("span", { style: "color:var(--bullish);font-weight:700;" }, [t.prob + "%"])]));
+  const grid = el("div", { style: "display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:12px;" });
+  [["Buy range", "\u20B9" + t.buyLow + "\u2013" + t.buyHigh, "var(--text)"], ["Risk / reward", t.rr, "var(--text)"],
+   ["Target 1", "\u20B9" + t.t1, "var(--bullish)"], ["Target 2", "\u20B9" + t.t2, "var(--bullish)"],
+   ["Target 3", "\u20B9" + t.t3, "var(--bullish)"], ["Stop loss", "\u20B9" + t.sl, "var(--bearish)"]].forEach(function (row) {
+    grid.appendChild(el("div", {}, [
+      el("div", { style: "color:var(--text2);" }, [row[0]]),
+      el("div", { style: "font-weight:600;color:" + row[2] + ";" }, [row[1]]),
+    ]));
+  });
+  card.appendChild(grid);
+  card.appendChild(el("div", { style: "font-size:10px;color:var(--text2);border-top:1px solid var(--border);padding-top:6px;" }, ["Expiry " + t.expiry]));
+  return card;
+}
+
+// ---------------------------------------------------------------------------
+// NAVIGATION
+// ---------------------------------------------------------------------------
+const NAV_ITEMS = [
+  { key: "dashboard", label: "Dashboard", icon: "home" },
+  { key: "scanner", label: "Market Scanner", icon: "scan" },
+  { key: "topstocks", label: "Top Stocks", icon: "trendUp" },
+  { key: "heatmap", label: "Stock Heatmap", icon: "grid" },
+  { key: "optionanalyzer", label: "Option Analyzer", icon: "bar" },
+  { key: "optionchain", label: "Option Chain", icon: "bar" },
+  { key: "aitrade", label: "AI Trade Finder", icon: "brain" },
+  { key: "aipredictions", label: "AI Predictions", icon: "brain" },
+  { key: "watchlist", label: "Watchlist", icon: "star" },
+  { key: "alerts", label: "Alerts", icon: "bell" },
+  { key: "settings", label: "Settings", icon: "settings" },
+  { key: "help", label: "Help", icon: "help" },
+];
+const MOBILE_NAV = [
+  { key: "dashboard", label: "Home", icon: "home" },
+  { key: "scanner", label: "Scanner", icon: "scan" },
+  { key: "optionchain", label: "Options", icon: "bar" },
+  { key: "aitrade", label: "AI Trade", icon: "brain" },
+  { key: "alerts", label: "Alerts", icon: "bell" },
+];
+
+function buildTradeCard(trade, isBest, symbolOverride) {
+  const badgeColor = trade.option_type === "CE" ? "var(--bullish)" : "var(--bearish)";
+  const card = el("div", { class: "card" }, [
+    el("div", { style: "display:flex;align-items:center;justify-content:space-between;" }, [
+      el("span", { style: "font-size:" + (isBest ? "18px" : "14px") + ";font-weight:700;" }, [fmtINR(trade.strike) + " " + trade.option_type]),
+      el("span", { style: "font-size:11px;font-weight:600;color:#fff;background:" + badgeColor + ";padding:3px 8px;border-radius:6px;" }, [trade.option_type === "CE" ? "BUY (CALL)" : "BUY (PUT)"]),
+    ]),
+    el("div", { style: "font-size:12px;color:var(--text2);" }, ["Estimated probability ", el("span", { style: "font-weight:700;color:var(--bullish);" }, [trade.probability + "%"])]),
+  ]);
+  const grid = el("div", { style: "display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:12px;" });
+  [["Buy range", "\u20B9" + trade.buy_range_low + "\u2013" + trade.buy_range_high],
+   ["Risk / reward", "1 : " + trade.risk_reward],
+   ["Target 1", "\u20B9" + trade.target_1], ["Target 2", "\u20B9" + trade.target_2],
+   ["Target 3", "\u20B9" + trade.target_3], ["Stop loss", "\u20B9" + trade.stop_loss]].forEach(function (row) {
+    grid.appendChild(el("div", {}, [el("div", { style: "color:var(--text2);" }, [row[0]]), el("div", { style: "font-weight:600;" }, [row[1]])]));
+  });
+  card.appendChild(grid);
+  if (isBest) {
+    card.appendChild(el("div", { style: "font-size:11px;color:var(--text2);margin-top:4px;" }, ["Why this trade?"]));
+    const reasonsList = el("ul", { style: "margin:0;padding-left:18px;font-size:12px;color:var(--text2);" });
+    (trade.reasons || []).forEach(function (r) { reasonsList.appendChild(el("li", {}, [r])); });
+    card.appendChild(reasonsList);
+    card.appendChild(el("div", { style: "font-size:11px;color:var(--text2);margin-top:8px;" }, ["What can invalidate this?"]));
+    const invList = el("ul", { style: "margin:0;padding-left:18px;font-size:12px;color:var(--bearish);" });
+    (trade.invalidation || []).forEach(function (r) { invList.appendChild(el("li", {}, [r])); });
+    card.appendChild(invList);
+
+    const symbol = symbolOverride || trade.symbol;
+    if (symbol) {
+      const logBtn = el("button", { class: "btn-primary", type: "button", style: "width:auto;padding:8px 16px;background:var(--ai);margin-top:8px;" }, ["+ Log This Trade"]);
+      const logMsg = el("div", { style: "font-size:11px;color:var(--text2);margin-top:4px;" });
+      logBtn.addEventListener("click", function () {
+        logBtn.disabled = true;
+        logBtn.textContent = "Logging\u2026";
+        const direction = trade.option_type === "CE" ? "bullish" : "bearish";
+        const entryPrice = trade.buy_range_low != null ? trade.buy_range_low : trade.buy_range_high;
+        const qs = new URLSearchParams({
+          symbol: symbol,
+          instrument_type: trade.option_type || "OPTION",
+          direction: direction,
+          entry_price: String(entryPrice),
+          target_1: String(trade.target_1),
+          stop_loss: String(trade.stop_loss),
+          predicted_probability: String(trade.probability),
+        });
+        apiFetch("/signals/log?" + qs.toString(), { method: "POST" }).then(function () {
+          logBtn.textContent = "\u2713 Logged";
+          logMsg.style.color = "var(--bullish)";
+          logMsg.textContent = "Saved to your Signal Log \u2014 check the Alerts page.";
+        }).catch(function () {
+          logBtn.disabled = false;
+          logBtn.textContent = "+ Log This Trade";
+          logMsg.style.color = "var(--bearish)";
+          logMsg.textContent = "Could not save this signal. Try again.";
+        });
+      });
+      card.appendChild(logBtn);
+      card.appendChild(logMsg);
+    }
+  }
+  return card;
+}
+
+function buildTradeFinderContent(isMobile) {
+  const wrap = el("div", { style: "display:flex;flex-direction:column;gap:16px;" });
+  const slot = el("div", { class: "card" }, [
+    el("span", { class: "card-title" }, ["AI Best Trade Now"]),
+    el("div", { style: "font-size:12px;color:var(--text2);" }, ["Scanning NIFTY option chain\u2026"]),
+  ]);
+  const candidatesSlot = el("div");
+  const disclaimer = el("div", { class: "disclaimer" }, [DISCLAIMER]);
+  wrap.appendChild(slot);
+  wrap.appendChild(candidatesSlot);
+  wrap.appendChild(disclaimer);
+
+  apiFetch("/aitrade/best-trade").then(function (data) {
+    clear(slot);
+    if (data.status === "NO_HIGH_QUALITY_TRADE_FOUND") {
+      slot.appendChild(el("span", { class: "card-title" }, ["AI Best Trade Now"]));
+      slot.appendChild(el("div", { style: "text-align:center;padding:20px 0;" }, [
+        el("div", { style: "font-size:16px;font-weight:700;color:var(--text2);margin-bottom:6px;" }, ["NO HIGH-QUALITY TRADE FOUND"]),
+        el("div", { style: "font-size:12px;color:var(--text2);" }, [data.reason || "No candidate met the minimum probability, risk/reward, and liquidity bar."]),
+      ]));
+    } else {
+      slot.replaceWith(buildTradeCard(data.best_trade, true, data.underlying));
+    }
+    if (data.top_candidates && data.top_candidates.length) {
+      const listCard = el("div", { class: "card" }, [el("span", { class: "card-title" }, ["Top Candidates Scanned"])]);
+      const table = el("table", { style: "font-size:12px;" });
+      const thead = el("thead", {}, [el("tr", { style: "color:var(--text2);font-size:11px;text-align:left;" }, [
+        el("th", { style: "padding:4px;" }, ["Strike"]), el("th", { style: "padding:4px;" }, ["Type"]),
+        el("th", { style: "padding:4px;" }, ["Prob."]), el("th", { style: "padding:4px;" }, ["R:R"]),
+      ])]);
+      const tbody = el("tbody");
+      data.top_candidates.forEach(function (c) {
+        tbody.appendChild(el("tr", { style: "border-top:1px solid var(--border);" }, [
+          el("td", { style: "padding:5px 4px;font-weight:600;" }, [fmtINR(c.strike)]),
+          el("td", { style: "padding:5px 4px;color:" + (c.option_type === "CE" ? "var(--bullish)" : "var(--bearish)") + ";" }, [c.option_type]),
+          el("td", { style: "padding:5px 4px;" }, [c.probability + "%"]),
+          el("td", { style: "padding:5px 4px;" }, ["1:" + c.risk_reward]),
+        ]));
+      });
+      table.appendChild(thead); table.appendChild(tbody);
+      listCard.appendChild(el("div", { style: "overflow-x:auto;" }, [table]));
+      candidatesSlot.appendChild(listCard);
+    }
+  }).catch(function () {
+    clear(slot);
+    slot.appendChild(el("span", { class: "card-title" }, ["AI Best Trade Now"]));
+    slot.appendChild(el("div", { style: "font-size:12px;color:var(--bearish);" }, ["Could not load trade finder data from the backend."]));
+  });
+
+  return wrap;
+}
+
+// ---------------------------------------------------------------------------
+// NIFTY ZONE + MARKET BREADTH PANELS
+// ---------------------------------------------------------------------------
+function zoneStrip(cells, minWidth) {
+  const wrap = el("div", { style: "overflow-x:auto;" });
+  const row = el("div", { style: "display:flex;border:1px solid var(--border);border-radius:8px;overflow:hidden;min-width:" + (minWidth || 560) + "px;" });
+  cells.forEach(function (c, idx) {
+    // c = [label, value, colorVar(optional), highlight(optional bool)]
+    row.appendChild(el("div", {
+      style: "flex:1;padding:8px 6px;text-align:center;" + (idx > 0 ? "border-left:1px solid var(--border);" : "") + (c[3] ? "background:var(--call-bg);" : "")
+    }, [
+      el("div", { style: "font-size:9px;color:var(--text2);font-weight:700;letter-spacing:0.3px;" }, [c[0]]),
+      el("div", { style: "font-size:12px;font-weight:700;color:" + (c[2] || "var(--text)") + ";white-space:nowrap;" }, [String(c[1])]),
+    ]));
+  });
+  wrap.appendChild(row);
+  return wrap;
+}
+
+function nearestLabel(spot, levels) {
+  // levels: [[label, value], ...] -> returns the label whose value is closest to spot
+  let best = null, bestDiff = Infinity;
+  levels.forEach(function (l) {
+    const diff = Math.abs(l[1] - spot);
+    if (diff < bestDiff) { bestDiff = diff; best = l[0]; }
+  });
+  return best;
+}
+
+function buildNiftyZoneCard(z, spot) {
+  const card = el("div", { class: "card" }, [el("span", { class: "card-title" }, ["NIFTY ZONE"])]);
+
+  const rangeCells = [
+    ["INDEX", z.index], ["PDC", fmtINR(z.pdc)], ["OPEN", fmtINR(z.open), z.open >= z.pdc ? "var(--bullish)" : "var(--bearish)"],
+    ["LOW", fmtINR(z.low), "var(--bearish)"], ["LOW -30", fmtINR(z.low_30), "var(--bearish)"],
+    ["HIGH", fmtINR(z.high), "var(--bullish)"], ["HIGH +30", fmtINR(z.high_30), "var(--bullish)"],
+    ["AVG", fmtINR(z.avg)], ["ZONE", fmtINR(z.zone.low) + "-" + fmtINR(z.zone.high), "var(--info)"],
+  ];
+  const nearRange = nearestLabel(spot, [["LOW", z.low], ["LOW -30", z.low_30], ["HIGH", z.high], ["HIGH +30", z.high_30], ["AVG", z.avg]]);
+  rangeCells.forEach(function (c) { if (c[0] === nearRange) c[3] = true; });
+  card.appendChild(zoneStrip(rangeCells, 640));
+
+  const pivotCells = [
+    ["S4", fmtINR(z.supports.S4), "var(--bullish)"], ["S3", fmtINR(z.supports.S3), "var(--bullish)"],
+    ["S2", fmtINR(z.supports.S2), "var(--bullish)"], ["S1", fmtINR(z.supports.S1), "var(--bullish)"],
+    ["PC", fmtINR(z.pivot_close), "var(--info)"],
+    ["R1", fmtINR(z.resistances.R1), "var(--bearish)"], ["R2", fmtINR(z.resistances.R2), "var(--bearish)"],
+    ["R3", fmtINR(z.resistances.R3), "var(--bearish)"], ["R4", fmtINR(z.resistances.R4), "var(--bearish)"],
+  ];
+  const nearPivot = nearestLabel(spot, [
+    ["S4", z.supports.S4], ["S3", z.supports.S3], ["S2", z.supports.S2], ["S1", z.supports.S1], ["PC", z.pivot_close],
+    ["R1", z.resistances.R1], ["R2", z.resistances.R2], ["R3", z.resistances.R3], ["R4", z.resistances.R4],
+  ]);
+  pivotCells.forEach(function (c) { if (c[0] === nearPivot) c[3] = true; });
+  card.appendChild(zoneStrip(pivotCells, 640));
+
+  return card;
+}
+
+function buildMarketBreadthPanel(title, data, timestamp) {
+  const card = el("div", { class: "card" }, [
+    el("div", { style: "display:flex;align-items:center;justify-content:space-between;" }, [
+      el("span", { class: "card-title" }, [title]),
+      el("span", { style: "font-size:10px;color:var(--text2);" }, [timestamp]),
+    ]),
+  ]);
+  const table = el("table", { style: "font-size:12px;" });
+  const thead = el("thead", {}, [el("tr", { style: "color:var(--text2);font-size:11px;text-align:left;" }, [
+    el("th", { style: "padding:4px 6px;" }, ["MARKET"]),
+    el("th", { style: "padding:4px 6px;text-align:center;" }, ["ADV"]),
+    el("th", { style: "padding:4px 6px;text-align:center;" }, ["DEC"]),
+    el("th", { style: "padding:4px 6px;text-align:center;" }, ["UNCH"]),
+  ])]);
+  const tbody = el("tbody");
+  [["NIFTY 50", data.NIFTY_50], ["NIFTY BANK", data.NIFTY_BANK], ["FNO", data.FNO]].forEach(function (row) {
+    const label = row[0], d = row[1];
+    tbody.appendChild(el("tr", { style: "border-top:1px solid var(--border);" }, [
+      el("td", { style: "padding:5px 6px;font-weight:600;" }, [label]),
+      el("td", { style: "padding:5px 6px;text-align:center;color:var(--bullish);font-weight:700;" }, [String(d.advances)]),
+      el("td", { style: "padding:5px 6px;text-align:center;color:var(--bearish);font-weight:700;" }, [String(d.declines)]),
+      el("td", { style: "padding:5px 6px;text-align:center;color:var(--text2);" }, [String(d.unchanged)]),
+    ]));
+  });
+  table.appendChild(thead); table.appendChild(tbody);
+  card.appendChild(table);
+  return card;
+}
+
+function buildMarketBreadthRow(data, isMobile) {
+  const grid = el("div", { class: "grid", style: "grid-template-columns:" + (isMobile ? "1fr" : "1fr 1fr") + ";" });
+  grid.appendChild(buildMarketBreadthPanel("PRE-OPEN MARKET DATA", data.pre_open, data.timestamp));
+  grid.appendChild(buildMarketBreadthPanel("LIVE MARKET DATA", data.live, data.timestamp));
+  return grid;
+}
+
+function buildOptionChainPageContent(isMobile) {
+  const wrap = el("div", { style: "display:flex;flex-direction:column;gap:16px;" });
+
+  const zoneSlot = el("div", { class: "card" }, [
+    el("span", { class: "card-title" }, ["NIFTY ZONE"]),
+    el("div", { style: "font-size:12px;color:var(--text2);" }, ["Loading\u2026"]),
+  ]);
+  const breadthSlot = el("div", { style: "font-size:12px;color:var(--text2);" }, ["Loading market breadth\u2026"]);
+
+  const controls = el("div", { class: "card" }, [
+    el("span", { class: "card-title" }, ["Option Chain Settings"]),
+  ]);
+  const underlyingSelect = el("select", { style: "width:100%;padding:8px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:13px;" }, [
+    el("option", { value: "NIFTY" }, ["NIFTY"]),
+    el("option", { value: "BANKNIFTY" }, ["BANK NIFTY"]),
+  ]);
+  underlyingSelect.value = getSettings().default_underlying;
+  controls.appendChild(el("div", { style: "display:flex;gap:10px;align-items:center;" }, [
+    el("span", { style: "font-size:12px;color:var(--text2);" }, ["Underlying:"]), underlyingSelect,
+  ]));
+
+  const spotLine = el("div", { style: "font-size:12px;color:var(--text2);" }, ["Loading\u2026"]);
+  const tableSlot = el("div");
+
+  wrap.appendChild(zoneSlot);
+  wrap.appendChild(breadthSlot);
+  wrap.appendChild(controls);
+  wrap.appendChild(spotLine);
+  wrap.appendChild(tableSlot);
+  wrap.appendChild(el("div", { class: "disclaimer" }, [DISCLAIMER]));
+
+  function loadZone() {
+    clear(zoneSlot);
+    zoneSlot.appendChild(el("span", { class: "card-title" }, ["NIFTY ZONE"]));
+    zoneSlot.appendChild(el("div", { style: "font-size:12px;color:var(--text2);" }, ["Loading\u2026"]));
+    apiFetch("/dashboard/nifty-zone?underlying=" + encodeURIComponent(underlyingSelect.value)).then(function (z) {
+      zoneSlot.replaceWith(buildNiftyZoneCard(z, (z.high + z.low) / 2));
+    }).catch(function () {
+      clear(zoneSlot);
+      zoneSlot.appendChild(el("span", { class: "card-title" }, ["NIFTY ZONE"]));
+      zoneSlot.appendChild(el("div", { style: "font-size:12px;color:var(--bearish);" }, ["Could not load zone data from the backend."]));
+    });
+  }
+  apiFetch("/dashboard/market-breadth").then(function (data) {
+    breadthSlot.replaceWith(buildMarketBreadthRow(data, isMobile));
+  }).catch(function () {
+    breadthSlot.textContent = "Could not load market breadth from the backend.";
+  });
+  loadZone();
+
+  function load() {
+    clear(tableSlot);
+    spotLine.textContent = "Loading\u2026";
+    apiFetch("/options/chain?underlying=" + encodeURIComponent(underlyingSelect.value)).then(function (data) {
+      spotLine.innerHTML = "";
+      spotLine.appendChild(el("span", {}, ["Spot: "]));
+      spotLine.appendChild(el("span", { style: "color:var(--text);font-weight:700;" }, [fmtINR(data.spot)]));
+      spotLine.appendChild(el("span", {}, [" \u00b7 Expiry: " + data.expiry]));
+      tableSlot.appendChild(buildFullOptionChainTable(data));
+    }).catch(function () {
+      spotLine.textContent = "Could not load option chain from the backend.";
+    });
+  }
+  underlyingSelect.addEventListener("change", function () { load(); loadZone(); });
+  load();
+
+  return wrap;
+}
+
+function biasRowStyle(bias) {
+  if (bias === "CALL BUY") return "background:rgba(14,159,110,0.07);";
+  if (bias === "PUT BUY") return "background:rgba(224,36,36,0.07);";
+  return "background:rgba(245,158,11,0.08);"; // MIXED OI
+}
+function biasBadgeColor(signal) {
+  return signal === "CALL BUY" ? "var(--bullish)" : (signal === "PUT BUY" ? "var(--bearish)" : "var(--text2)");
+}
+
+function oiChgCell(entry) {
+  const color = entry.oi_change_value >= 0 ? "var(--bullish)" : "var(--bearish)";
+  return el("td", { style: "padding:4px 2px;text-align:center;" }, [
+    el("div", { style: "font-weight:700;color:" + color + ";white-space:nowrap;" }, [(entry.oi_change_value >= 0 ? "+" : "") + entry.oi_change_fmt]),
+    el("div", { style: "font-size:9px;color:var(--text2);white-space:nowrap;" }, ["(" + entry.oi_change_multiplier + "x)"]),
+  ]);
+}
+
+function buildOiBiasStrip(overallBias, timeframes) {
+  const cells = [["OI", overallBias]].concat(Object.keys(timeframes).filter(function (k) { return k !== "OI"; }).map(function (k) { return [k, timeframes[k]]; }));
+  const wrap = el("div", { style: "overflow-x:auto;" });
+  const row = el("div", { style: "display:flex;border:1px solid var(--border);border-radius:8px;overflow:hidden;min-width:520px;" });
+  cells.forEach(function (c, idx) {
+    const bull = c[1] === "BULLISH";
+    row.appendChild(el("div", {
+      style: "flex:1;padding:7px 4px;text-align:center;" + (idx > 0 ? "border-left:1px solid var(--border);" : "") + "background:" + (bull ? "var(--call-bg)" : "var(--put-bg)") + ";"
+    }, [
+      el("div", { style: "font-size:9px;color:var(--text2);font-weight:700;" }, [c[0] + ":"]),
+      el("div", { style: "font-size:11px;font-weight:700;color:" + (bull ? "var(--bullish)" : "var(--bearish)") + ";" }, [c[1]]),
+    ]));
+  });
+  wrap.appendChild(row);
+  return wrap;
+}
+
+function buildFullOptionChainTable(data) {
+  const card = el("div", { class: "card" }, [el("span", { class: "card-title" }, ["Full Option Chain \u2014 " + data.underlying])]);
+  card.appendChild(buildOiBiasStrip(data.overall_oi_bias, data.timeframe_oi_bias));
+  const header = el("div", { style: "display:flex;gap:8px;font-size:11px;font-weight:700;" }, [
+    el("div", { style: "flex:1;text-align:center;padding:6px;border-radius:6px;background:var(--call-bg);color:var(--bullish);" }, ["CALLS (CE)"]),
+    el("div", { style: "flex:1;text-align:center;padding:6px;border-radius:6px;background:var(--put-bg);color:var(--bearish);" }, ["PUTS (PE)"]),
+  ]);
+  const table = el("table", { style: "font-size:10px;" });
+  const ceCols = ["OI Chg", "OI", "Vol", "IV", "Delta", "LTP"];
+  const peCols = ceCols.slice().reverse();
+  const theadRow = el("tr", { style: "color:var(--text2);text-align:center;" });
+  ceCols.forEach(function (c) { theadRow.appendChild(el("th", { style: "padding:3px;" }, [c])); });
+  theadRow.appendChild(el("th", { style: "padding:3px;background:var(--strike-bg);" }, ["Strike"]));
+  peCols.forEach(function (c) { theadRow.appendChild(el("th", { style: "padding:3px;" }, [c])); });
+  theadRow.appendChild(el("th", { style: "padding:3px;" }, ["Bias"]));
+  theadRow.appendChild(el("th", { style: "padding:3px;" }, ["Final Signal"]));
+  const thead = el("thead", {}, [theadRow]);
+
+  const tbody = el("tbody");
+  const spot = data.spot;
+  for (let i = 0; i < data.calls.length; i++) {
+    const c = data.calls[i], p = data.puts[i];
+    const isAtm = Math.abs(c.strike - spot) === Math.min.apply(null, data.calls.map(function (x) { return Math.abs(x.strike - spot); }));
+    const tr = el("tr", { style: "border-top:1px solid var(--border);text-align:center;" + biasRowStyle(c.bias) });
+    tr.appendChild(oiChgCell(c));
+    [
+      [null, c.oi_fmt], [null, fmtINR(c.volume)], [null, c.iv], [null, c.delta], [null, c.ltp],
+    ].forEach(function (cell) { tr.appendChild(el("td", { style: "padding:4px 2px;" + (cell[0] ? "color:" + cell[0] + ";" : "") }, [String(cell[1])])); });
+    tr.appendChild(el("td", { style: "padding:4px 2px;font-weight:700;background:" + (isAtm ? "var(--atm-bg)" : "transparent") + ";" }, [fmtINR(c.strike)]));
+    [
+      [null, p.ltp], [null, p.delta], [null, p.iv], [null, fmtINR(p.volume)], [null, p.oi_fmt],
+    ].forEach(function (cell) { tr.appendChild(el("td", { style: "padding:4px 2px;" + (cell[0] ? "color:" + cell[0] + ";" : "") }, [String(cell[1])])); });
+    tr.appendChild(oiChgCell(p));
+    tr.appendChild(el("td", { style: "padding:4px 3px;font-size:9px;font-weight:700;color:var(--text2);" }, [c.bias]));
+    tr.appendChild(el("td", { style: "padding:4px 3px;font-size:9px;font-weight:700;color:" + biasBadgeColor(c.final_signal) + ";" }, [c.final_signal]));
+    tbody.appendChild(tr);
+  }
+  table.appendChild(thead); table.appendChild(tbody);
+  card.appendChild(header);
+  card.appendChild(el("div", { style: "overflow-x:auto;" }, [table]));
+  card.appendChild(el("div", { style: "font-size:10px;color:var(--text2);" }, ["BIAS / FINAL SIGNAL is computed from real OI value added by calls vs. puts at each strike \u2014 indicator/AI scoring is layered on afterwards, not before."]));
+  return card;
+}
+
+function heatmapTile(symbol, ltp, changePct) {
+  const up = changePct >= 0;
+  const mag = Math.min(Math.abs(changePct) / 3, 1); // 0..1 intensity vs a 3% move
+  const bg = up
+    ? "rgba(14,159,110," + (0.12 + mag * 0.55) + ")"
+    : "rgba(224,36,36," + (0.12 + mag * 0.55) + ")";
+  return el("div", { style: "border-radius:8px;padding:10px 8px;background:" + bg + ";display:flex;flex-direction:column;gap:4px;min-width:0;" }, [
+    el("div", { style: "font-size:12px;font-weight:700;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" }, [symbol]),
+    el("div", { style: "font-size:11px;color:var(--text2);" }, ["\u20B9" + fmtINR(ltp)]),
+    el("div", { style: "font-size:12px;font-weight:700;color:" + (up ? "var(--bullish)" : "var(--bearish)") + ";" }, [(up ? "+" : "") + changePct + "%"]),
+  ]);
+}
+
+function buildHeatmapGrid(stocks, isMobile) {
+  const grid = el("div", { style: "display:grid;grid-template-columns:repeat(" + (isMobile ? 3 : 6) + ",1fr);gap:8px;" });
+  stocks.forEach(function (s) {
+    grid.appendChild(heatmapTile(s.symbol || s.stock_symbol, s.ltp, s.change_pct !== undefined ? s.change_pct : (s.probability ? s.probability - 75 : 0)));
+  });
+  return grid;
+}
+
+function buildHeatmapContent(isMobile) {
+  const wrap = el("div", { style: "display:flex;flex-direction:column;gap:16px;" });
+  const card = el("div", { class: "card" }, [
+    el("span", { class: "card-title" }, ["Stock Heatmap \u2014 by day\u2019s change %"]),
+    el("div", { style: "font-size:12px;color:var(--text2);" }, ["Loading heatmap\u2026"]),
+  ]);
+  wrap.appendChild(card);
+  wrap.appendChild(el("div", { class: "disclaimer" }, [DISCLAIMER]));
+
+  Promise.all([
+    apiFetch("/dashboard/top-bullish").catch(function () { return { stocks: FALLBACK_STOCKS }; }),
+    apiFetch("/dashboard/top-bearish").catch(function () { return { stocks: [] }; }),
+  ]).then(function (results) {
+    const combined = [].concat(results[0].stocks || [], results[1].stocks || []);
+    clear(card);
+    card.appendChild(el("span", { class: "card-title" }, ["Stock Heatmap \u2014 by day\u2019s change %"]));
+    card.appendChild(buildHeatmapGrid(combined, isMobile));
+  }).catch(function () {
+    clear(card);
+    card.appendChild(el("span", { class: "card-title" }, ["Stock Heatmap \u2014 by day\u2019s change %"]));
+    card.appendChild(el("div", { style: "font-size:12px;color:var(--bearish);" }, ["Could not load heatmap data from the backend."]));
+  });
+
+  return wrap;
+}
+
+// ---------------------------------------------------------------------------
+// TOP STOCKS (full bullish + bearish ranked lists with reasons)
+// ---------------------------------------------------------------------------
+function buildProbStockTable(title, rows, color) {
+  const card = el("div", { class: "card" }, [el("span", { class: "card-title" }, [title])]);
+  const table = el("table", { style: "font-size:12px;" });
+  const thead = el("thead", {}, [el("tr", { style: "color:var(--text2);font-size:11px;text-align:left;" }, [
+    el("th", { style: "padding:4px 6px;" }, ["#"]),
+    el("th", { style: "padding:4px 6px;" }, ["Stock"]),
+    el("th", { style: "padding:4px 6px;" }, ["LTP"]),
+    el("th", { style: "padding:4px 6px;" }, ["Chg%"]),
+    el("th", { style: "padding:4px 6px;" }, ["Prob."]),
+    el("th", { style: "padding:4px 6px;" }, ["Why"]),
+  ])]);
+  const tbody = el("tbody");
+  rows.forEach(function (r, idx) {
+    tbody.appendChild(el("tr", { style: "border-top:1px solid var(--border);vertical-align:top;" }, [
+      el("td", { style: "padding:6px;color:var(--text2);" }, [String(idx + 1)]),
+      el("td", { style: "padding:6px;font-weight:600;white-space:nowrap;" }, [r.symbol]),
+      el("td", { style: "padding:6px;white-space:nowrap;" }, ["\u20B9" + fmtINR(r.ltp)]),
+      el("td", { style: "padding:6px;white-space:nowrap;color:" + (r.change_pct >= 0 ? "var(--bullish)" : "var(--bearish)") + ";" }, [(r.change_pct >= 0 ? "+" : "") + r.change_pct + "%"]),
+      el("td", { style: "padding:6px;white-space:nowrap;color:" + color + ";font-weight:700;" }, [r.probability + "%"]),
+      el("td", { style: "padding:6px;color:var(--text2);font-size:11px;min-width:180px;" }, [(r.reasons || []).join("; ")]),
+    ]));
+  });
+  table.appendChild(thead); table.appendChild(tbody);
+  card.appendChild(el("div", { style: "overflow-x:auto;max-height:480px;overflow-y:auto;" }, [table]));
+  if (rows.length === 0) card.appendChild(el("div", { style: "font-size:12px;color:var(--text2);" }, ["No stocks available."]));
+  return card;
+}
+
+function buildTopStocksContent(isMobile) {
+  const wrap = el("div", { style: "display:flex;flex-direction:column;gap:16px;" });
+  const bullSlot = el("div", { class: "card" }, [
+    el("span", { class: "card-title" }, ["Top 10 Bullish Stocks"]),
+    el("div", { style: "font-size:12px;color:var(--text2);" }, ["Loading\u2026"]),
+  ]);
+  const bearSlot = el("div", { class: "card" }, [
+    el("span", { class: "card-title" }, ["Top 10 Bearish Stocks"]),
+    el("div", { style: "font-size:12px;color:var(--text2);" }, ["Loading\u2026"]),
+  ]);
+  const grid = el("div", { class: "grid", style: "grid-template-columns:" + (isMobile ? "1fr" : "1fr 1fr") + ";" }, [bullSlot, bearSlot]);
+  wrap.appendChild(grid);
+  wrap.appendChild(el("div", { class: "disclaimer" }, [DISCLAIMER]));
+
+  apiFetch("/dashboard/top-bullish").then(function (data) {
+    bullSlot.replaceWith(buildProbStockTable("Top 10 Bullish Stocks", data.stocks || [], "var(--bullish)"));
+  }).catch(function () {
+    clear(bullSlot);
+    bullSlot.appendChild(el("span", { class: "card-title" }, ["Top 10 Bullish Stocks"]));
+    bullSlot.appendChild(el("div", { style: "font-size:12px;color:var(--bearish);" }, ["Could not load data from the backend."]));
+  });
+
+  apiFetch("/dashboard/top-bearish").then(function (data) {
+    bearSlot.replaceWith(buildProbStockTable("Top 10 Bearish Stocks", data.stocks || [], "var(--bearish)"));
+  }).catch(function () {
+    clear(bearSlot);
+    bearSlot.appendChild(el("span", { class: "card-title" }, ["Top 10 Bearish Stocks"]));
+    bearSlot.appendChild(el("div", { style: "font-size:12px;color:var(--bearish);" }, ["Could not load data from the backend."]));
+  });
+
+  return wrap;
+}
+
+// ---------------------------------------------------------------------------
+// AI PREDICTIONS (bullish + bearish probability scan, with watchlist star)
+// ---------------------------------------------------------------------------
+function buildPredictionsTable(title, rows, color) {
+  const card = el("div", { class: "card" }, [el("span", { class: "card-title" }, [title])]);
+  const table = el("table", { style: "font-size:12px;" });
+  const thead = el("thead", {}, [el("tr", { style: "color:var(--text2);font-size:11px;text-align:left;" }, [
+    el("th", { style: "padding:4px 6px;" }, ["#"]),
+    el("th", { style: "padding:4px 6px;" }, ["Stock"]),
+    el("th", { style: "padding:4px 6px;" }, ["LTP"]),
+    el("th", { style: "padding:4px 6px;" }, ["Chg%"]),
+    el("th", { style: "padding:4px 6px;" }, ["Prob."]),
+    el("th", { style: "padding:4px 6px;" }, ["Why"]),
+    el("th", { style: "padding:4px 6px;text-align:center;" }, ["Watch"]),
+  ])]);
+  const tbody = el("tbody");
+  rows.forEach(function (r, idx) {
+    tbody.appendChild(el("tr", { style: "border-top:1px solid var(--border);vertical-align:top;" }, [
+      el("td", { style: "padding:6px;color:var(--text2);" }, [String(idx + 1)]),
+      el("td", { style: "padding:6px;font-weight:600;white-space:nowrap;" }, [r.symbol]),
+      el("td", { style: "padding:6px;white-space:nowrap;" }, ["\u20B9" + fmtINR(r.ltp)]),
+      el("td", { style: "padding:6px;white-space:nowrap;color:" + (r.change_pct >= 0 ? "var(--bullish)" : "var(--bearish)") + ";" }, [(r.change_pct >= 0 ? "+" : "") + r.change_pct + "%"]),
+      el("td", { style: "padding:6px;white-space:nowrap;color:" + color + ";font-weight:700;" }, [r.probability + "%"]),
+      el("td", { style: "padding:6px;color:var(--text2);font-size:11px;min-width:160px;" }, [(r.reasons || []).join("; ")]),
+      el("td", { style: "padding:6px;text-align:center;" }, [buildWatchStar(r)]),
+    ]));
+  });
+  table.appendChild(thead); table.appendChild(tbody);
+  card.appendChild(el("div", { style: "overflow-x:auto;max-height:480px;overflow-y:auto;" }, [table]));
+  if (rows.length === 0) card.appendChild(el("div", { style: "font-size:12px;color:var(--text2);" }, ["No predictions available."]));
+  return card;
+}
+
+function buildAIPredictionsContent(isMobile) {
+  const wrap = el("div", { style: "display:flex;flex-direction:column;gap:16px;" });
+  wrap.appendChild(el("div", { style: "font-size:12px;color:var(--text2);" }, ["AI-ranked directional predictions across the tracked universe. Tap the star to add a stock to your Watchlist."]));
+
+  const bullSlot = el("div", { class: "card" }, [
+    el("span", { class: "card-title" }, ["AI Bullish Predictions"]),
+    el("div", { style: "font-size:12px;color:var(--text2);" }, ["Loading\u2026"]),
+  ]);
+  const bearSlot = el("div", { class: "card" }, [
+    el("span", { class: "card-title" }, ["AI Bearish Predictions"]),
+    el("div", { style: "font-size:12px;color:var(--text2);" }, ["Loading\u2026"]),
+  ]);
+  const grid = el("div", { class: "grid", style: "grid-template-columns:" + (isMobile ? "1fr" : "1fr 1fr") + ";" }, [bullSlot, bearSlot]);
+  wrap.appendChild(grid);
+  wrap.appendChild(el("div", { class: "disclaimer" }, [DISCLAIMER]));
+
+  apiFetch("/dashboard/top-bullish").then(function (data) {
+    const rows = (data.stocks || []).map(function (s) { return Object.assign({}, s, { direction: "bullish" }); });
+    bullSlot.replaceWith(buildPredictionsTable("AI Bullish Predictions", rows, "var(--bullish)"));
+  }).catch(function () {
+    clear(bullSlot);
+    bullSlot.appendChild(el("span", { class: "card-title" }, ["AI Bullish Predictions"]));
+    bullSlot.appendChild(el("div", { style: "font-size:12px;color:var(--bearish);" }, ["Could not load data from the backend."]));
+  });
+
+  apiFetch("/dashboard/top-bearish").then(function (data) {
+    const rows = (data.stocks || []).map(function (s) { return Object.assign({}, s, { direction: "bearish" }); });
+    bearSlot.replaceWith(buildPredictionsTable("AI Bearish Predictions", rows, "var(--bearish)"));
+  }).catch(function () {
+    clear(bearSlot);
+    bearSlot.appendChild(el("span", { class: "card-title" }, ["AI Bearish Predictions"]));
+    bearSlot.appendChild(el("div", { style: "font-size:12px;color:var(--bearish);" }, ["Could not load data from the backend."]));
+  });
+
+  return wrap;
+}
+
+// ---------------------------------------------------------------------------
+// WATCHLIST (locally stored; enriched with live data when available)
+// ---------------------------------------------------------------------------
+function buildWatchlistContent(isMobile) {
+  const wrap = el("div", { style: "display:flex;flex-direction:column;gap:16px;" });
+
+  const addCard = el("div", { class: "card" }, [el("span", { class: "card-title" }, ["Add to Watchlist"])]);
+  const symbolInput = el("input", { type: "text", placeholder: "e.g. RELIANCE" });
+  const addBtn = el("button", { class: "btn-primary", type: "button", style: "width:auto;padding:10px 20px;white-space:nowrap;" }, ["Add"]);
+  addCard.appendChild(el("div", { style: "display:flex;gap:8px;align-items:stretch;" }, [symbolInput, addBtn]));
+  const addMsg = el("div", { style: "font-size:11px;color:var(--text2);" });
+  addCard.appendChild(addMsg);
+
+  const listSlot = el("div");
+  wrap.appendChild(addCard);
+  wrap.appendChild(listSlot);
+  wrap.appendChild(el("div", { class: "disclaimer" }, [DISCLAIMER]));
+
+  let pool = [];
+
+  function renderList() {
+    clear(listSlot);
+    const items = getWatchlist();
+    const card = el("div", { class: "card" }, [el("span", { class: "card-title" }, ["Your Watchlist (" + items.length + ")"])]);
+    if (items.length === 0) {
+      card.appendChild(el("div", { style: "font-size:12px;color:var(--text2);" }, ["No stocks yet. Add one above, or star a stock on the AI Predictions page."]));
+    } else {
+      const table = el("table", { style: "font-size:12px;" });
+      const thead = el("thead", {}, [el("tr", { style: "color:var(--text2);font-size:11px;text-align:left;" }, [
+        el("th", { style: "padding:4px 6px;" }, ["Stock"]),
+        el("th", { style: "padding:4px 6px;" }, ["LTP"]),
+        el("th", { style: "padding:4px 6px;" }, ["Chg%"]),
+        el("th", { style: "padding:4px 6px;" }, ["Direction"]),
+        el("th", { style: "padding:4px 6px;" }, ["Prob."]),
+        el("th", { style: "padding:4px 6px;" }, [""]),
+      ])]);
+      const tbody = el("tbody");
+      items.forEach(function (it) {
+        const live = pool.filter(function (p) { return p.symbol === it.symbol; })[0];
+        const merged = live || it;
+        const dirColor = merged.direction === "bearish" ? "var(--bearish)" : "var(--bullish)";
+        const removeBtn = el("span", { style: "cursor:pointer;color:var(--bearish);font-size:11px;font-weight:600;" }, ["Remove"]);
+        removeBtn.addEventListener("click", function () { removeWatchlistItem(it.symbol); renderList(); });
+        tbody.appendChild(el("tr", { style: "border-top:1px solid var(--border);" }, [
+          el("td", { style: "padding:6px;font-weight:600;white-space:nowrap;" }, [it.symbol]),
+          el("td", { style: "padding:6px;white-space:nowrap;" }, [merged.ltp != null ? "\u20B9" + fmtINR(merged.ltp) : "\u2014"]),
+          el("td", { style: "padding:6px;white-space:nowrap;color:" + (merged.change_pct >= 0 ? "var(--bullish)" : "var(--bearish)") + ";" }, [merged.change_pct != null ? (merged.change_pct >= 0 ? "+" : "") + merged.change_pct + "%" : "\u2014"]),
+          el("td", { style: "padding:6px;text-transform:capitalize;color:" + dirColor + ";font-weight:600;" }, [merged.direction || "\u2014"]),
+          el("td", { style: "padding:6px;font-weight:700;color:" + dirColor + ";" }, [merged.probability != null ? merged.probability + "%" : "\u2014"]),
+          el("td", { style: "padding:6px;text-align:right;" }, [removeBtn]),
+        ]));
+      });
+      table.appendChild(thead); table.appendChild(tbody);
+      card.appendChild(el("div", { style: "overflow-x:auto;" }, [table]));
+      card.appendChild(el("div", { style: "font-size:10px;color:var(--text2);margin-top:6px;" }, ["Live figures shown when a stock appears in the latest AI Predictions scan; otherwise the last-known values are shown."]));
+    }
+    listSlot.appendChild(card);
+  }
+
+  addBtn.addEventListener("click", function () {
+    const sym = symbolInput.value.trim().toUpperCase();
+    addMsg.textContent = "";
+    if (!sym) return;
+    if (isWatchlisted(sym)) {
+      addMsg.textContent = sym + " is already on your watchlist.";
+      return;
+    }
+    const live = pool.filter(function (p) { return p.symbol === sym; })[0];
+    upsertWatchlistItem(live ? Object.assign({ added_at: Date.now() }, live) : { symbol: sym, added_at: Date.now() });
+    symbolInput.value = "";
+    renderList();
+  });
+
+  renderList();
+
+  Promise.all([
+    apiFetch("/dashboard/top-bullish").catch(function () { return { stocks: [] }; }),
+    apiFetch("/dashboard/top-bearish").catch(function () { return { stocks: [] }; }),
+  ]).then(function (results) {
+    pool = (results[0].stocks || []).map(function (s) { return Object.assign({}, s, { direction: "bullish" }); })
+      .concat((results[1].stocks || []).map(function (s) { return Object.assign({}, s, { direction: "bearish" }); }));
+    const items = getWatchlist();
+    items.forEach(function (it) {
+      const live = pool.filter(function (p) { return p.symbol === it.symbol; })[0];
+      if (live) upsertWatchlistItem(Object.assign({ added_at: it.added_at }, live));
+    });
+    renderList();
+  });
+
+  return wrap;
+}
+
+// ---------------------------------------------------------------------------
+// OPTION ANALYZER (OI-first best CE / PE setup, powered by /options/best-setup)
+// ---------------------------------------------------------------------------
+function buildOptionAnalyzerContent(isMobile) {
+  const wrap = el("div", { style: "display:flex;flex-direction:column;gap:16px;" });
+
+  const controls = el("div", { class: "card" }, [el("span", { class: "card-title" }, ["Option Analyzer Settings"])]);
+  const underlyingSelect = el("select", { style: "width:100%;padding:8px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:13px;" }, [
+    el("option", { value: "NIFTY" }, ["NIFTY"]),
+    el("option", { value: "BANKNIFTY" }, ["BANK NIFTY"]),
+  ]);
+  underlyingSelect.value = getSettings().default_underlying;
+  controls.appendChild(el("div", { style: "display:flex;gap:10px;align-items:center;" }, [
+    el("span", { style: "font-size:12px;color:var(--text2);" }, ["Underlying:"]), underlyingSelect,
+  ]));
+  controls.appendChild(el("div", { style: "font-size:11px;color:var(--text2);" }, ["Strikes are shortlisted by real OI buildup first; AI/indicator scoring is layered on afterwards to explain the pick."]));
+
+  const resultSlot = el("div", { style: "font-size:12px;color:var(--text2);" }, ["Loading\u2026"]);
+  const grid = el("div", { class: "grid", style: "grid-template-columns:" + (isMobile ? "1fr" : "1fr 1fr") + ";" });
+
+  wrap.appendChild(controls);
+  wrap.appendChild(resultSlot);
+  wrap.appendChild(grid);
+  wrap.appendChild(el("div", { class: "disclaimer" }, [DISCLAIMER]));
+
+  function load() {
+    clear(grid);
+    resultSlot.style.color = "var(--text2)";
+    resultSlot.textContent = "Loading\u2026";
+    apiFetch("/options/best-setup?underlying=" + encodeURIComponent(underlyingSelect.value)).then(function (data) {
+      resultSlot.textContent = "";
+      grid.appendChild(buildTradeCard(data.best_ce, true));
+      grid.appendChild(buildTradeCard(data.best_pe, true));
+    }).catch(function () {
+      resultSlot.style.color = "var(--bearish)";
+      resultSlot.textContent = "Could not load option analyzer data from the backend.";
+    });
+  }
+  underlyingSelect.addEventListener("change", load);
+  load();
+
+  return wrap;
+}
+
+// ---------------------------------------------------------------------------
+// ALERTS (local rules checked against live scanner data, plus the real
+// signal log recorded via /signals/log + /signals/history on the backend)
+// ---------------------------------------------------------------------------
+function buildAlertRuleChip(rule, onRemove) {
+  const chip = el("div", { class: "rule-chip" }, [
+    el("span", {}, [
+      el("span", { style: "font-weight:700;" }, [rule.symbol]),
+      " \u2014 " + rule.direction + " probability \u2265 " + rule.threshold + "%",
+    ]),
+  ]);
+  const removeBtn = el("span", { style: "cursor:pointer;color:var(--bearish);font-weight:600;flex-shrink:0;" }, ["Remove"]);
+  removeBtn.addEventListener("click", onRemove);
+  chip.appendChild(removeBtn);
+  return chip;
+}
+
+function buildAlertsContent(isMobile) {
+  const wrap = el("div", { style: "display:flex;flex-direction:column;gap:16px;" });
+
+  // --- create a rule ---
+  const createCard = el("div", { class: "card" }, [el("span", { class: "card-title" }, ["Create Alert Rule"])]);
+  const symbolInput = el("input", { type: "text", placeholder: "e.g. RELIANCE" });
+  const dirSelect = el("select", { style: "width:100%;padding:10px 12px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:14px;" }, [
+    el("option", { value: "bullish" }, ["Bullish"]),
+    el("option", { value: "bearish" }, ["Bearish"]),
+  ]);
+  const thresholdSelect = el("select", { style: "width:100%;padding:10px 12px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:14px;" },
+    [50, 60, 70, 80, 90].map(function (v) { return el("option", { value: String(v) }, [v + "%+"]); }));
+  thresholdSelect.value = String(getSettings().alert_probability_threshold);
+  const addBtn = el("button", { class: "btn-primary", type: "button" }, ["Add Alert Rule"]);
+  const addMsg = el("div", { style: "font-size:11px;color:var(--text2);" });
+  createCard.appendChild(el("div", { style: "display:flex;flex-direction:column;gap:8px;" }, [
+    symbolInput,
+    el("div", { style: "display:flex;gap:8px;" }, [dirSelect, thresholdSelect]),
+    addBtn, addMsg,
+  ]));
+
+  // --- active rules + live check ---
+  const rulesSlot = el("div");
+  const signalLogSlot = el("div", { class: "card" }, [
+    el("span", { class: "card-title" }, ["Signal Log"]),
+    el("div", { style: "font-size:12px;color:var(--text2);" }, ["Loading\u2026"]),
+  ]);
+
+  wrap.appendChild(createCard);
+  wrap.appendChild(rulesSlot);
+  wrap.appendChild(signalLogSlot);
+  wrap.appendChild(el("div", { class: "disclaimer" }, [DISCLAIMER]));
+
+  let pool = [];
+
+  function checkRules() {
+    const rules = getAlertRules();
+    const card = el("div", { class: "card" }, [
+      el("div", { style: "display:flex;align-items:center;justify-content:space-between;" }, [
+        el("span", { class: "card-title" }, ["Your Alert Rules (" + rules.length + ")"]),
+        el("span", { style: "font-size:10px;color:var(--text2);" }, ["Checked against the latest scanner pass"]),
+      ]),
+    ]);
+    if (rules.length === 0) {
+      card.appendChild(el("div", { style: "font-size:12px;color:var(--text2);" }, ["No alert rules yet. Add one above \u2014 for example, RELIANCE bullish probability \u2265 70%."]));
+    } else {
+      const list = el("div", { style: "display:flex;flex-direction:column;gap:8px;" });
+      rules.forEach(function (rule) {
+        const match = pool.filter(function (p) { return p.symbol === rule.symbol && p.direction === rule.direction; })[0];
+        const triggered = match && match.probability >= rule.threshold;
+        const chip = buildAlertRuleChip(rule, function () { removeAlertRule(rule.id); checkRules(); });
+        if (triggered) {
+          chip.style.borderColor = "var(--bullish)";
+          chip.style.background = "var(--call-bg)";
+          chip.insertBefore(el("span", { style: "font-size:11px;font-weight:700;color:var(--bullish);flex-shrink:0;" }, ["TRIGGERED \u2014 " + match.probability + "%"]), chip.lastChild);
+          notifyIfEnabled("Alert triggered: " + rule.symbol, rule.symbol + " " + rule.direction + " probability is now " + match.probability + "%.");
+        }
+        list.appendChild(chip);
+      });
+      card.appendChild(list);
+    }
+    clear(rulesSlot);
+    rulesSlot.appendChild(card);
+  }
+
+  addBtn.addEventListener("click", function () {
+    const sym = symbolInput.value.trim().toUpperCase();
+    addMsg.textContent = "";
+    if (!sym) { addMsg.textContent = "Enter a symbol first."; return; }
+    addAlertRule({ symbol: sym, direction: dirSelect.value, threshold: Number(thresholdSelect.value) });
+    symbolInput.value = "";
+    checkRules();
+  });
+
+  Promise.all([
+    apiFetch("/dashboard/top-bullish").catch(function () { return { stocks: [] }; }),
+    apiFetch("/dashboard/top-bearish").catch(function () { return { stocks: [] }; }),
+  ]).then(function (results) {
+    pool = (results[0].stocks || []).map(function (s) { return Object.assign({}, s, { direction: "bullish" }); })
+      .concat((results[1].stocks || []).map(function (s) { return Object.assign({}, s, { direction: "bearish" }); }));
+    checkRules();
+  }).catch(function () { checkRules(); });
+
+  apiFetch("/signals/history").then(function (rows) {
+    clear(signalLogSlot);
+    signalLogSlot.appendChild(el("span", { class: "card-title" }, ["Signal Log"]));
+    if (!rows || rows.length === 0) {
+      signalLogSlot.appendChild(el("div", { style: "font-size:12px;color:var(--text2);" }, ["No signals logged yet. Signals are recorded automatically when a trade setup is generated."]));
+      return;
+    }
+    const table = el("table", { style: "font-size:12px;" });
+    const thead = el("thead", {}, [el("tr", { style: "color:var(--text2);font-size:11px;text-align:left;" }, [
+      el("th", { style: "padding:4px 6px;" }, ["Symbol"]), el("th", { style: "padding:4px 6px;" }, ["Dir."]),
+      el("th", { style: "padding:4px 6px;" }, ["Entry"]), el("th", { style: "padding:4px 6px;" }, ["Target"]),
+      el("th", { style: "padding:4px 6px;" }, ["SL"]), el("th", { style: "padding:4px 6px;" }, ["Prob."]),
+      el("th", { style: "padding:4px 6px;" }, ["Result"]),
+    ])]);
+    const tbody = el("tbody");
+    rows.slice(0, 25).forEach(function (r) {
+      const dirColor = r.direction === "bearish" ? "var(--bearish)" : "var(--bullish)";
+      tbody.appendChild(el("tr", { style: "border-top:1px solid var(--border);" }, [
+        el("td", { style: "padding:5px 6px;font-weight:600;white-space:nowrap;" }, [r.symbol]),
+        el("td", { style: "padding:5px 6px;text-transform:capitalize;color:" + dirColor + ";" }, [r.direction]),
+        el("td", { style: "padding:5px 6px;" }, [fmtINR(r.entry_price)]),
+        el("td", { style: "padding:5px 6px;" }, [fmtINR(r.target_1)]),
+        el("td", { style: "padding:5px 6px;" }, [fmtINR(r.stop_loss)]),
+        el("td", { style: "padding:5px 6px;font-weight:700;" }, [r.predicted_probability + "%"]),
+        el("td", { style: "padding:5px 6px;" }, [r.result || "\u2014"]),
+      ]));
+    });
+    table.appendChild(thead); table.appendChild(tbody);
+    signalLogSlot.appendChild(el("div", { style: "overflow-x:auto;" }, [table]));
+  }).catch(function () {
+    clear(signalLogSlot);
+    signalLogSlot.appendChild(el("span", { class: "card-title" }, ["Signal Log"]));
+    signalLogSlot.appendChild(el("div", { style: "font-size:12px;color:var(--bearish);" }, ["Could not load the signal log from the backend."]));
+  });
+
+  return wrap;
+}
+
+// ---------------------------------------------------------------------------
+// SETTINGS
+// ---------------------------------------------------------------------------
+function buildSettingsToggleRow(label, sublabel, checked, onChange) {
+  const cb = el("input", { type: "checkbox" });
+  cb.checked = checked;
+  cb.addEventListener("change", function () { onChange(cb.checked); });
+  const track = el("span", { class: "switch-track" });
+  const switchWrap = el("label", { class: "switch" }, [cb, track]);
+  return el("div", { class: "settings-row" }, [
+    el("div", {}, [
+      el("div", { style: "font-size:13px;font-weight:600;" }, [label]),
+      sublabel ? el("div", { style: "font-size:11px;color:var(--text2);" }, [sublabel]) : null,
+    ]),
+    switchWrap,
+  ]);
+}
+
+function buildSettingsContent(isMobile, onLogout) {
+  const wrap = el("div", { style: "display:flex;flex-direction:column;gap:16px;" });
+
+  // --- account ---
+  const accountCard = el("div", { class: "card" }, [
+    el("span", { class: "card-title" }, ["Account"]),
+    el("div", { style: "font-size:12px;color:var(--text2);" }, ["Loading\u2026"]),
+  ]);
+  apiFetch("/auth/me").then(function (me) {
+    clear(accountCard);
+    accountCard.appendChild(el("span", { class: "card-title" }, ["Account"]));
+    accountCard.appendChild(el("div", { style: "font-size:14px;font-weight:600;" }, [me.email]));
+    if (me.member_since) accountCard.appendChild(el("div", { style: "font-size:11px;color:var(--text2);" }, ["Member since " + String(me.member_since).slice(0, 10)]));
+    const logoutBtn = el("button", { class: "btn-primary", type: "button", style: "width:auto;padding:8px 18px;background:var(--bearish);" }, ["Log out"]);
+    logoutBtn.addEventListener("click", onLogout);
+    accountCard.appendChild(logoutBtn);
+  }).catch(function () {
+    clear(accountCard);
+    accountCard.appendChild(el("span", { class: "card-title" }, ["Account"]));
+    accountCard.appendChild(el("div", { style: "font-size:12px;color:var(--bearish);" }, ["Could not load account details from the backend."]));
+    const logoutBtn = el("button", { class: "btn-primary", type: "button", style: "width:auto;padding:8px 18px;background:var(--bearish);" }, ["Log out"]);
+    logoutBtn.addEventListener("click", onLogout);
+    accountCard.appendChild(logoutBtn);
+  });
+
+  // --- trading preferences ---
+  const tradingCard = el("div", { class: "card" }, [el("span", { class: "card-title" }, ["Trading Preferences"])]);
+  const underlyingSelect = el("select", { style: "width:100%;padding:8px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:13px;" }, [
+    el("option", { value: "NIFTY" }, ["NIFTY"]),
+    el("option", { value: "BANKNIFTY" }, ["BANK NIFTY"]),
+  ]);
+  underlyingSelect.value = getSettings().default_underlying;
+  underlyingSelect.addEventListener("change", function () { saveSettings({ default_underlying: underlyingSelect.value }); });
+  tradingCard.appendChild(el("div", { style: "display:flex;gap:10px;align-items:center;" }, [
+    el("span", { style: "font-size:12px;color:var(--text2);flex-shrink:0;" }, ["Default underlying:"]), underlyingSelect,
+  ]));
+  tradingCard.appendChild(el("div", { style: "font-size:11px;color:var(--text2);" }, ["Used to pre-select NIFTY / BANK NIFTY on the Option Chain and Option Analyzer pages."]));
+
+  // --- alert preferences ---
+  const alertCard = el("div", { class: "card" }, [el("span", { class: "card-title" }, ["Alert Preferences"])]);
+  const thresholdSelect = el("select", { style: "width:100%;padding:8px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:13px;" },
+    [50, 60, 70, 80, 90].map(function (v) { return el("option", { value: String(v) }, [v + "%+"]); }));
+  thresholdSelect.value = String(getSettings().alert_probability_threshold);
+  thresholdSelect.addEventListener("change", function () { saveSettings({ alert_probability_threshold: Number(thresholdSelect.value) }); });
+  alertCard.appendChild(el("div", { style: "display:flex;gap:10px;align-items:center;" }, [
+    el("span", { style: "font-size:12px;color:var(--text2);flex-shrink:0;" }, ["Default alert threshold:"]), thresholdSelect,
+  ]));
+  const notifRow = buildSettingsToggleRow(
+    "Desktop notifications",
+    "Show a browser notification when an alert rule on the Alerts page triggers.",
+    getSettings().desktop_notifications,
+    function (checked) {
+      if (checked && typeof Notification !== "undefined" && Notification.permission !== "granted") {
+        Notification.requestPermission().then(function (perm) { saveSettings({ desktop_notifications: perm === "granted" }); });
+      } else {
+        saveSettings({ desktop_notifications: checked });
+      }
+    }
+  );
+  alertCard.appendChild(notifRow);
+
+  // --- about / disclaimer ---
+  const aboutCard = el("div", { class: "card" }, [
+    el("span", { class: "card-title" }, ["About"]),
+    el("div", { style: "font-size:12px;color:var(--text2);" }, ["AI Trading Edge \u2014 running in mock-data mode. All prices, indicators, and option chain figures are simulated for development and are not live market feeds."]),
+    el("div", { style: "font-size:11px;color:var(--text2);" }, [DISCLAIMER]),
+  ]);
+
+  wrap.appendChild(accountCard);
+  wrap.appendChild(tradingCard);
+  wrap.appendChild(alertCard);
+  wrap.appendChild(aboutCard);
+  return wrap;
+}
+
+function buildComingSoon(label) {
+  return el("div", { style: "display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:260px;gap:8px;color:var(--text2);" }, [
+    icon("brain", 28, "var(--ai)"),
+    el("div", { style: "font-size:15px;font-weight:600;color:var(--text);" }, [label]),
+    el("div", { style: "font-size:12px;text-align:center;max-width:320px;" }, ["This page is planned for a later build phase. The Dashboard (Phase 1) is complete with mock/live data."]),
+  ]);
+}
+
+function buildScannerStockTable(title, rows, color) {
+  const card = el("div", { class: "card" }, [el("span", { class: "card-title" }, [title])]);
+  const table = el("table", { style: "font-size:12px;" });
+  const thead = el("thead", {}, [el("tr", { style: "color:var(--text2);font-size:11px;text-align:left;" }, [
+    el("th", { style: "padding:4px 6px;" }, ["Stock"]),
+    el("th", { style: "padding:4px 6px;" }, ["LTP"]),
+    el("th", { style: "padding:4px 6px;" }, ["Chg%"]),
+    el("th", { style: "padding:4px 6px;" }, ["RSI"]),
+    el("th", { style: "padding:4px 6px;" }, ["Volume"]),
+  ])]);
+  const tbody = el("tbody");
+  rows.forEach(function (r) {
+    tbody.appendChild(el("tr", { style: "border-top:1px solid var(--border);" }, [
+      el("td", { style: "padding:5px 6px;font-weight:600;" }, [r.symbol]),
+      el("td", { style: "padding:5px 6px;" }, ["\u20B9" + fmtINR(r.ltp)]),
+      el("td", { style: "padding:5px 6px;color:" + color + ";font-weight:600;" }, [(r.change_pct > 0 ? "+" : "") + r.change_pct + "%"]),
+      el("td", { style: "padding:5px 6px;" }, [String(r.rsi)]),
+      el("td", { style: "padding:5px 6px;color:var(--text2);" }, [fmtINR(r.volume)]),
+    ]));
+  });
+  table.appendChild(thead); table.appendChild(tbody);
+  card.appendChild(el("div", { style: "overflow-x:auto;max-height:340px;overflow-y:auto;" }, [table]));
+  if (rows.length === 0) card.appendChild(el("div", { style: "font-size:12px;color:var(--text2);" }, ["No stocks currently aligned on this side."]));
+  return card;
+}
+
+function buildScannerContent(isMobile) {
+  const wrap = el("div", { style: "display:flex;flex-direction:column;gap:16px;" });
+
+  const zoneCard = el("div", { class: "card" }, [el("span", { class: "card-title" }, ["Nifty Zone \u2014 Multi-Timeframe Bias"])]);
+  const zoneGrid = el("div", { style: "display:grid;grid-template-columns:repeat(" + (isMobile ? 3 : 6) + ",1fr);gap:8px;" });
+  zoneCard.appendChild(zoneGrid);
+
+  const advCard = el("div", { class: "card" }, [
+    el("span", { class: "card-title" }, ["Advance / Decline"]),
+    el("div", { style: "display:flex;align-items:baseline;gap:6px;" }, [
+      el("span", { id: "sc-adv", style: "font-size:20px;font-weight:700;color:var(--bullish);" }, ["\u2013"]),
+      el("span", { style: "font-size:13px;color:var(--text2);" }, ["/"]),
+      el("span", { id: "sc-decl", style: "font-size:20px;font-weight:700;color:var(--bearish);" }, ["\u2013"]),
+    ]),
+  ]);
+
+  const topRow = el("div", { class: "grid", style: "grid-template-columns:" + (isMobile ? "1fr" : "2fr 1fr") + ";" }, [zoneCard, advCard]);
+
+  const listsGrid = el("div", { class: "grid", style: "grid-template-columns:" + (isMobile ? "1fr" : "1fr 1fr") + ";" });
+  const upSlot = el("div", {}, [buildScannerStockTable("EMA + MACD + RSI: ALL UP (Buy watch)", [], "var(--bullish)")]);
+  const downSlot = el("div", {}, [buildScannerStockTable("EMA + MACD + RSI: ALL DOWN (Sell watch)", [], "var(--bearish)")]);
+  listsGrid.appendChild(upSlot);
+  listsGrid.appendChild(downSlot);
+
+  const note = el("div", { class: "disclaimer" }, ["Stocks are listed only when EMA structure, momentum, and RSI all agree on one direction. " + DISCLAIMER]);
+
+  wrap.appendChild(topRow);
+  wrap.appendChild(listsGrid);
+  wrap.appendChild(note);
+
+  apiFetch("/scanner/overview").then(function (data) {
+    clear(zoneGrid);
+    Object.keys(data.timeframe_zones).forEach(function (tf) {
+      const bias = data.timeframe_zones[tf];
+      const bullish = bias === "BULLISH";
+      zoneGrid.appendChild(el("div", { style: "text-align:center;padding:8px 4px;border-radius:8px;background:" + (bullish ? "var(--call-bg)" : "var(--put-bg)") + ";" }, [
+        el("div", { style: "font-size:10px;color:var(--text2);" }, [tf]),
+        el("div", { style: "font-size:12px;font-weight:700;color:" + (bullish ? "var(--bullish)" : "var(--bearish)") + ";" }, [bias]),
+      ]));
+    });
+    document.getElementById("sc-adv").textContent = data.advance_decline.advances;
+    document.getElementById("sc-decl").textContent = data.advance_decline.declines;
+    clear(upSlot); upSlot.appendChild(buildScannerStockTable("EMA + MACD + RSI: ALL UP (Buy watch)", data.all_up_stocks, "var(--bullish)"));
+    clear(downSlot); downSlot.appendChild(buildScannerStockTable("EMA + MACD + RSI: ALL DOWN (Sell watch)", data.all_down_stocks, "var(--bearish)"));
+  }).catch(function () {
+    clear(zoneGrid);
+    zoneGrid.appendChild(el("div", { style: "font-size:12px;color:var(--text2);grid-column:1/-1;" }, ["Could not load scanner data from the backend."]));
+  });
+
+  return wrap;
+}
+
+function trendColor(regime) {
+  if (regime === "STRONG_BULLISH" || regime === "BULLISH") return "var(--bullish)";
+  if (regime === "STRONG_BEARISH" || regime === "BEARISH") return "var(--bearish)";
+  return "var(--text2)";
+}
+function trendLabel(regime) {
+  return String(regime || "SIDEWAYS").replace("_", " ");
+}
+
+function buildDashboardContent(isMobile) {
+  const topGrid = el("div", { class: "grid", style: "grid-template-columns:" + (isMobile ? "1fr 1fr" : "repeat(auto-fit,minmax(150px,1fr))") + ";" });
+  topGrid.appendChild(el("div", { class: "card" }, [
+    el("span", { class: "card-title" }, ["Market Trend"]),
+    el("div", { style: "font-size:12px;color:var(--text2);" }, ["Loading\u2026"]),
+  ]));
+  topGrid.appendChild(el("div", { class: "card" }, [
+    el("span", { class: "card-title" }, ["Advance / Decline"]),
+    el("div", { style: "font-size:12px;color:var(--text2);" }, ["Loading\u2026"]),
+  ]));
+  topGrid.appendChild(el("div", { class: "card" }, [
+    el("span", { class: "card-title" }, ["SENSEX"]),
+    el("div", { style: "font-size:12px;color:var(--text2);" }, ["Loading\u2026"]),
+  ]));
+  topGrid.appendChild(el("div", { class: "card" }, [
+    el("span", { class: "card-title" }, ["India VIX"]),
+    el("div", { style: "font-size:12px;color:var(--text2);" }, ["Loading\u2026"]),
+  ]));
+
+  Promise.all([
+    apiFetch("/dashboard/overview").catch(function () { return null; }),
+    apiFetch("/dashboard/market-breadth").catch(function () { return null; }),
+  ]).then(function (results) {
+    const overview = results[0], breadth = results[1];
+    const cards = topGrid.children;
+
+    if (overview) {
+      clear(cards[0]);
+      cards[0].appendChild(el("span", { class: "card-title" }, ["Market Trend"]));
+      cards[0].appendChild(el("div", { style: "font-size:18px;font-weight:700;color:" + trendColor(overview.market_regime) + ";" }, [trendLabel(overview.market_regime)]));
+      cards[0].appendChild(el("div", { style: "font-size:12px;color:var(--text2);" }, ["Based on the live market regime read"]));
+
+      clear(cards[2]);
+      const sensex = overview.SENSEX || {};
+      cards[2].appendChild(el("span", { class: "card-title" }, ["SENSEX"]));
+      cards[2].appendChild(el("div", {}, [
+        el("span", { style: "font-size:20px;font-weight:700;" }, [fmtINR(sensex.ltp)]),
+        " ",
+        el("span", { style: "font-size:12px;font-weight:600;color:" + (sensex.change_pct >= 0 ? "var(--bullish)" : "var(--bearish)") + ";" }, [(sensex.change_pct >= 0 ? "+" : "") + sensex.change_pct + "%"]),
+      ]));
+
+      clear(cards[3]);
+      const vix = overview.INDIA_VIX || {};
+      cards[3].appendChild(el("span", { class: "card-title" }, ["India VIX"]));
+      cards[3].appendChild(el("div", {}, [
+        el("span", { style: "font-size:20px;font-weight:700;" }, [String(vix.value)]),
+        " ",
+        el("span", { style: "font-size:12px;font-weight:600;color:" + (vix.change_pct >= 0 ? "var(--bearish)" : "var(--bullish)") + ";" }, [(vix.change_pct >= 0 ? "+" : "") + vix.change_pct + "%"]),
+      ]));
+    } else {
+      [0, 2, 3].forEach(function (i) {
+        clear(cards[i]);
+        cards[i].appendChild(el("div", { style: "font-size:12px;color:var(--bearish);" }, ["Could not load from the backend."]));
+      });
+    }
+
+    if (breadth) {
+      const live = breadth.live || {};
+      const cats = [live.NIFTY_50, live.NIFTY_BANK, live.FNO].filter(Boolean);
+      const advances = cats.reduce(function (s, c) { return s + (c.advances || 0); }, 0);
+      const declines = cats.reduce(function (s, c) { return s + (c.declines || 0); }, 0);
+      clear(cards[1]);
+      cards[1].appendChild(el("span", { class: "card-title" }, ["Advance / Decline"]));
+      cards[1].appendChild(el("div", {}, [
+        el("span", { style: "font-size:20px;font-weight:700;color:var(--bullish);" }, [String(advances)]),
+        " / ",
+        el("span", { style: "font-size:20px;font-weight:700;color:var(--bearish);" }, [String(declines)]),
+      ]));
+      cards[1].appendChild(el("div", { style: "font-size:11px;color:var(--text2);" }, ["Live session, across NIFTY 50 / NIFTY BANK / FNO"]));
+    } else {
+      clear(cards[1]);
+      cards[1].appendChild(el("div", { style: "font-size:12px;color:var(--bearish);" }, ["Could not load from the backend."]));
+    }
+  });
+
+  const mainGrid = el("div", { class: "grid", style: "grid-template-columns:" + (isMobile ? "1fr" : "1.1fr 1.1fr 1.3fr") + ";" });
+  const stocksCardSlot = el("div");
+  stocksCardSlot.appendChild(buildStockCard(FALLBACK_STOCKS, "Loading live data from the backend\u2026"));
+  mainGrid.appendChild(stocksCardSlot);
+  mainGrid.appendChild(buildTradeSetupCard());
+  mainGrid.appendChild(buildOptionChainCard());
+
+  const heatmapCard = el("div", { class: "card" }, [
+    el("div", { style: "display:flex;align-items:center;justify-content:space-between;" }, [
+      el("span", { class: "card-title" }, ["Stock Heatmap"]),
+      el("span", { style: "font-size:11px;color:var(--info);cursor:pointer;", onclick: function () { window.dispatchEvent(new CustomEvent("ate-navigate", { detail: "heatmap" })); } }, ["View full heatmap \u2192"]),
+    ]),
+    el("div", { style: "font-size:12px;color:var(--text2);" }, ["Loading heatmap\u2026"]),
+  ]);
+
+  const disclaimer = el("div", { class: "disclaimer" }, [DISCLAIMER]);
+  const wrap = el("div", { style: "display:flex;flex-direction:column;gap:16px;" }, [topGrid, mainGrid, heatmapCard, disclaimer]);
+
+  Promise.all([
+    apiFetch("/dashboard/top-bullish").catch(function () { return { stocks: FALLBACK_STOCKS }; }),
+    apiFetch("/dashboard/top-bearish").catch(function () { return { stocks: [] }; }),
+  ]).then(function (results) {
+    const combined = [].concat(results[0].stocks || [], results[1].stocks || []);
+    clear(heatmapCard);
+    heatmapCard.appendChild(el("div", { style: "display:flex;align-items:center;justify-content:space-between;" }, [
+      el("span", { class: "card-title" }, ["Stock Heatmap"]),
+      el("span", { style: "font-size:11px;color:var(--info);" }, ["by day\u2019s change %"]),
+    ]));
+    heatmapCard.appendChild(buildHeatmapGrid(combined.slice(0, isMobile ? 9 : 18), isMobile));
+  }).catch(function () {
+    clear(heatmapCard);
+    heatmapCard.appendChild(el("span", { class: "card-title" }, ["Stock Heatmap"]));
+    heatmapCard.appendChild(el("div", { style: "font-size:12px;color:var(--bearish);" }, ["Could not load heatmap data from the backend."]));
+  });
+
+  apiFetch("/dashboard/top-bullish").then(function (data) {
+    clear(stocksCardSlot);
+    stocksCardSlot.appendChild(buildStockCard(data.stocks, null));
+  }).catch(function () {
+    clear(stocksCardSlot);
+    stocksCardSlot.appendChild(buildStockCard(FALLBACK_STOCKS, "Could not load live data from the backend \u2014 showing local sample data instead."));
+  });
+
+  return wrap;
+}
+
+// ---------------------------------------------------------------------------
+// APP SHELL (sidebar + mobile nav + page routing)
+// ---------------------------------------------------------------------------
+function buildHeaderStats() {
+  const strip = el("div", { class: "stat-strip" });
+  const loadingBox = el("div", { style: "font-size:11px;color:var(--text2);padding:4px 8px;" }, ["Loading market data\u2026"]);
+  strip.appendChild(loadingBox);
+
+  function refresh() {
+    apiFetch("/dashboard/overview").then(function (data) {
+      const rows = [
+        ["NIFTY", data.NIFTY], ["BANK NIFTY", data.BANK_NIFTY], ["SENSEX", data.SENSEX],
+        ["INDIA VIX", data.INDIA_VIX], ["ADX", data.ADX], ["RSI", data.RSI],
+      ];
+      clear(strip);
+      rows.forEach(function (r) {
+        const label = r[0], d = r[1];
+        if (!d) return;
+        const val = d.ltp !== undefined ? fmtINR(d.ltp) : String(d.value);
+        const chg = d.change_pct;
+        const box = el("div", { class: "stat-box" }, [
+          el("span", { class: "sname" }, [label]),
+          el("span", { class: "sval" }, [val]),
+        ]);
+        if (chg !== undefined) {
+          box.appendChild(el("span", { class: "schg", style: "color:" + (chg >= 0 ? "var(--bullish)" : "var(--bearish)") + ";" }, [(chg >= 0 ? "+" : "") + chg + "%"]));
+        }
+        strip.appendChild(box);
+      });
+    }).catch(function () {
+      clear(strip);
+      strip.appendChild(el("div", { style: "font-size:11px;color:var(--text2);padding:4px 8px;" }, ["Could not load market data."]));
+    });
+  }
+  refresh();
+  setInterval(refresh, 30000);
+  strip.refreshData = refresh;
+  return strip;
+}
+
+function buildTicker() {
+  const wrap = el("div", { class: "ticker-wrap" });
+  const track = el("div", { class: "ticker-track" }, [el("span", { style: "font-size:12px;color:var(--text2);" }, ["Loading market ticker\u2026"])]);
+  wrap.appendChild(track);
+
+  apiFetch("/dashboard/overview").then(function (data) {
+    const rows = [
+      ["NIFTY", data.NIFTY], ["SENSEX", data.SENSEX], ["BANK NIFTY", data.BANK_NIFTY],
+      ["INDIA VIX", data.INDIA_VIX], ["ADX", data.ADX], ["RSI", data.RSI],
+    ];
+    function buildItems() {
+      const frag = document.createDocumentFragment();
+      rows.forEach(function (r) {
+        const label = r[0], d = r[1];
+        if (!d) return;
+        const val = d.ltp !== undefined ? fmtINR(d.ltp) : String(d.value);
+        const chg = d.change_pct;
+        const item = el("span", { class: "ticker-item" }, [
+          el("span", { class: "tname" }, [label]),
+          el("span", { class: "tval" }, [val]),
+        ]);
+        if (chg !== undefined) {
+          item.appendChild(el("span", { style: "font-size:11px;font-weight:600;color:" + (chg >= 0 ? "var(--bullish)" : "var(--bearish)") + ";" }, [(chg >= 0 ? "+" : "") + chg + "%"]));
+        }
+        frag.appendChild(item);
+      });
+      return frag;
+    }
+    clear(track);
+    track.appendChild(buildItems());
+    track.appendChild(buildItems()); // duplicate for seamless loop
+  }).catch(function () {
+    clear(track);
+    track.appendChild(el("span", { style: "font-size:12px;color:var(--text2);" }, ["Could not load market ticker from the backend."]));
+  });
+
+  return wrap;
+}
+
+function renderApp(root, onLogout) {
+  clear(root);
+  const isMobile = window.innerWidth < 900;
+  let active = "dashboard";
+  let sidebarOpen = !isMobile;
+
+  const shell = el("div", { style: "background:var(--bg);color:var(--text);min-height:100vh;" });
+
+  // header
+  const header = el("div", { style: "height:64px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 16px;position:sticky;top:0;background:var(--card);z-index:10;gap:12px;" });
+  const menuToggle = el("div", { class: "menu-toggle", title: "Toggle menu" }, [icon("menu", 16, "var(--text2)")]);
+  const brand = el("div", { style: "display:flex;align-items:center;gap:10px;" }, [
+    menuToggle,
+    el("div", { style: "width:28px;height:28px;border-radius:8px;background:var(--ai);display:flex;align-items:center;justify-content:center;flex-shrink:0;" }, [icon("brain", 16, "#fff")]),
+  ]);
+  if (!isMobile) brand.appendChild(el("span", { style: "font-weight:700;font-size:14px;white-space:nowrap;" }, ["AI TRADING EDGE"]));
+  const headerStats = buildHeaderStats();
+  const refreshBtn = el("div", { class: "menu-toggle refresh-btn", title: "Refresh all data" }, [icon("refresh", 16, "var(--text2)")]);
+  const rightControls = el("div", { style: "display:flex;align-items:center;gap:12px;flex-shrink:0;" }, [
+    refreshBtn,
+    el("span", { style: "display:flex;align-items:center;gap:4px;font-size:12px;color:var(--bullish);" }, [icon("circle", 8, "var(--bullish)"), " Live"]),
+    icon("bell", 16, "var(--text2)"),
+  ]);
+  const logoutIcon = el("div", { style: "cursor:pointer;", title: "Log out" }, [icon("user", 16, "var(--text2)")]);
+  logoutIcon.addEventListener("click", onLogout);
+  rightControls.appendChild(logoutIcon);
+  header.appendChild(brand); header.appendChild(headerStats); header.appendChild(rightControls);
+  refreshBtn.addEventListener("click", function () {
+    if (refreshBtn.classList.contains("spin")) return; // already refreshing, ignore extra taps
+    refreshBtn.classList.add("spin");
+    headerStats.refreshData();
+    renderPage();
+    setTimeout(function () { refreshBtn.classList.remove("spin"); }, 700);
+  });
+
+  // sidebar drawer (slides in/out on both desktop and mobile)
+  const overlay = el("div", { class: "sidebar-overlay" });
+  const sidebar = el("div", { class: "sidebar-drawer" });
+  let sidebarNavNodes = [];
+  NAV_ITEMS.forEach(function (item) {
+    const node = el("div", { class: "nav-item" + (item.key === "dashboard" ? " active" : "") }, [icon(item.icon, 16), item.label]);
+    node.addEventListener("click", function () {
+      active = item.key;
+      sidebarNavNodes.forEach(function (n) { n.el.className = "nav-item" + (n.key === active ? " active" : ""); });
+      renderPage();
+      if (isMobile) setSidebar(false);
+    });
+    sidebarNavNodes.push({ el: node, key: item.key });
+    sidebar.appendChild(node);
+  });
+
+  function setSidebar(open) {
+    sidebarOpen = open;
+    sidebar.className = "sidebar-drawer" + (open ? " open" : "");
+    overlay.className = "sidebar-overlay" + (open ? " open" : "");
+    contentArea.style.marginLeft = (!isMobile && open) ? "var(--sidebar-w)" : "0";
+  }
+  menuToggle.addEventListener("click", function () { setSidebar(!sidebarOpen); });
+  overlay.addEventListener("click", function () { setSidebar(false); });
+
+  // body: content (sidebar is a fixed overlay drawer, not part of flex flow)
+  const body = el("div", { style: "display:flex;" });
+  const contentArea = el("div", { style: "flex:1;padding:20px;padding-bottom:" + (isMobile ? "80px" : "20px") + ";min-width:0;transition:margin-left 0.25s ease;" });
+
+  function renderPage() {
+    clear(contentArea);
+    if (active === "dashboard") {
+      contentArea.appendChild(buildDashboardContent(isMobile));
+    } else if (active === "scanner") {
+      contentArea.appendChild(buildScannerContent(isMobile));
+    } else if (active === "aitrade") {
+      contentArea.appendChild(buildTradeFinderContent(isMobile));
+    } else if (active === "optionchain") {
+      contentArea.appendChild(buildOptionChainPageContent(isMobile));
+    } else if (active === "heatmap") {
+      contentArea.appendChild(buildHeatmapContent(isMobile));
+    } else if (active === "topstocks") {
+      contentArea.appendChild(buildTopStocksContent(isMobile));
+    } else if (active === "optionanalyzer") {
+      contentArea.appendChild(buildOptionAnalyzerContent(isMobile));
+    } else if (active === "aipredictions") {
+      contentArea.appendChild(buildAIPredictionsContent(isMobile));
+    } else if (active === "watchlist") {
+      contentArea.appendChild(buildWatchlistContent(isMobile));
+    } else if (active === "alerts") {
+      contentArea.appendChild(buildAlertsContent(isMobile));
+    } else if (active === "settings") {
+      contentArea.appendChild(buildSettingsContent(isMobile, onLogout));
+    } else {
+      const item = NAV_ITEMS.filter(function (n) { return n.key === active; })[0];
+      contentArea.appendChild(buildComingSoon(item ? item.label : "Dashboard"));
+    }
+  }
+
+  body.appendChild(contentArea);
+
+  window.addEventListener("ate-navigate", function (e) {
+    active = e.detail;
+    sidebarNavNodes.forEach(function (n) { n.el.className = "nav-item" + (n.key === active ? " active" : ""); });
+    renderPage();
+  });
+
+  shell.appendChild(header);
+  shell.appendChild(overlay);
+  shell.appendChild(sidebar);
+  shell.appendChild(body);
+
+  // mobile bottom nav
+  let mobileNavNodes = [];
+  if (isMobile) {
+    const bottomNav = el("div", { style: "position:fixed;bottom:0;left:0;right:0;height:64px;background:var(--card);border-top:1px solid var(--border);display:flex;z-index:20;" });
+    MOBILE_NAV.forEach(function (item) {
+      const node = el("div", { class: "mobile-nav-item" + (item.key === "dashboard" ? " active" : "") }, [icon(item.icon, 18), el("span", { style: "font-size:10px;" }, [item.label])]);
+      node.addEventListener("click", function () {
+        active = item.key;
+        mobileNavNodes.forEach(function (n) { n.el.className = "mobile-nav-item" + (n.key === active ? " active" : ""); });
+        sidebarNavNodes.forEach(function (n) { n.el.className = "nav-item" + (n.key === active ? " active" : ""); });
+        renderPage();
+      });
+      mobileNavNodes.push({ el: node, key: item.key });
+      bottomNav.appendChild(node);
+    });
+    shell.appendChild(bottomNav);
+  }
+
+  root.appendChild(shell);
+  setSidebar(sidebarOpen);
+  renderPage();
+}
+
+// ---------------------------------------------------------------------------
+// APP BOOTSTRAP
+// ---------------------------------------------------------------------------
+function boot() {
+  const root = document.getElementById("root");
+  function showAuth() { renderAuthScreen(root, showDashboard); }
+  function showDashboard() { renderApp(root, function () { clearToken(); showAuth(); }); }
+  if (getToken()) showDashboard(); else showAuth();
+}
+boot();
+</script>
+</body>
+</html>
