@@ -12,6 +12,7 @@ other module only depends on the shape of the data returned here
 """
 
 import random
+from datetime import datetime
 
 NIFTY_50_SAMPLE = [
     "RELIANCE", "HDFCBANK", "ICICIBANK", "INFY", "TCS", "AXISBANK",
@@ -71,6 +72,69 @@ def generate_advance_decline() -> dict:
     advances = rnd.randint(600, 1800)
     declines = rnd.randint(400, 1600)
     return {"advances": advances, "declines": declines}
+
+
+def generate_nifty_zone(spot: float, underlying: str = "NIFTY") -> dict:
+    """Pivot-point support/resistance 'zone' panel (mirrors the NIFTY ZONE
+    box from the reference dashboard): PDC/open/day-range plus classic
+    pivot S1-S4 / R1-R4 levels, and a highlighted 'current zone' band."""
+    rnd = _seeded_random("nifty-zone-" + underlying + str(random.random()))
+    pdc = round(spot - rnd.uniform(-90, 90), 2)
+    open_ = round(pdc + rnd.uniform(-45, 45), 2)
+    low = round(min(open_, spot) - rnd.uniform(15, 60), 2)
+    high = round(max(open_, spot) + rnd.uniform(15, 60), 2)
+    low_30 = round(low - rnd.uniform(10, 40), 2)
+    high_30 = round(high + rnd.uniform(10, 40), 2)
+    avg = round((low + high) / 2, 2)
+
+    pivot = round((high + low + pdc) / 3, 2)
+    r1 = round(2 * pivot - low, 2)
+    s1 = round(2 * pivot - high, 2)
+    r2 = round(pivot + (high - low), 2)
+    s2 = round(pivot - (high - low), 2)
+    r3 = round(high + 2 * (pivot - low), 2)
+    s3 = round(low - 2 * (high - pivot), 2)
+    r4 = round(r3 + (r2 - r1), 2)
+    s4 = round(s3 - (s1 - s2), 2)
+
+    zone_low = round(min(s1, low_30), 2)
+    zone_high = round(max(r1, high_30), 2)
+
+    return {
+        "index": underlying,
+        "pdc": pdc, "open": open_, "low": low, "high": high,
+        "low_30": low_30, "high_30": high_30, "avg": avg,
+        "pivot_close": pdc,
+        "supports": {"S1": s1, "S2": s2, "S3": s3, "S4": s4},
+        "resistances": {"R1": r1, "R2": r2, "R3": r3, "R4": r4},
+        "zone": {"low": zone_low, "high": zone_high},
+    }
+
+
+def generate_market_breadth() -> dict:
+    """Advance/Decline/Unchanged breakdown for NIFTY 50 / NIFTY BANK / FNO,
+    for both the pre-open session and the current live session."""
+    def _breadth(seed: str) -> dict:
+        rnd = _seeded_random(seed + str(random.random()))
+        return {
+            "advances": rnd.randint(4, 100),
+            "declines": rnd.randint(4, 130),
+            "unchanged": rnd.randint(0, 40),
+        }
+
+    return {
+        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "pre_open": {
+            "NIFTY_50": _breadth("preopen-n50"),
+            "NIFTY_BANK": _breadth("preopen-nbank"),
+            "FNO": _breadth("preopen-fno"),
+        },
+        "live": {
+            "NIFTY_50": _breadth("live-n50"),
+            "NIFTY_BANK": _breadth("live-nbank"),
+            "FNO": _breadth("live-fno"),
+        },
+    }
 
 
 def generate_mock_backtest_summary() -> dict:
