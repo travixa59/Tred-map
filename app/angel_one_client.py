@@ -137,21 +137,31 @@ def _load_scrip_master() -> list:
     return _scrip_master_cache
 
 
-def find_symbol_token(exch_seg: str, name: str) -> dict | None:
-    """Looks up a symbol token by exact exchange segment + name, e.g.
-    find_symbol_token('NSE', 'NIFTY 50'). Returns the raw scrip-master
-    record (has 'token', 'symbol', 'name', etc.) or None if not found."""
-    for row in _load_scrip_master():
-        if row.get("exch_seg") == exch_seg and row.get("name") == name:
+def find_symbol_token(exch_seg: str, name_candidates) -> dict | None:
+    """Looks up a symbol token by exchange segment + name. `name_candidates`
+    can be a single string or a list of possible values to try in order -
+    Angel One's scrip master naming isn't perfectly predictable across
+    indices, so we try a couple of reasonable variants instead of hardcoding
+    exactly one and failing silently on a mismatch."""
+    if isinstance(name_candidates, str):
+        name_candidates = [name_candidates]
+    rows = _load_scrip_master()
+    wanted = {n.upper() for n in name_candidates}
+    for row in rows:
+        if row.get("exch_seg") == exch_seg and str(row.get("name", "")).upper() in wanted:
             return row
     return None
 
 
-# Index name -> (exchange segment, scrip-master "name" field) for spot LTP lookup.
+# Index name -> (exchange segment, [candidate scrip-master "name" values]) for
+# spot LTP lookup. NOTE: Angel One's scrip master uses SHORT codes in the
+# "name" field (e.g. {"symbol":"Nifty 50","name":"NIFTY","exch_seg":"NSE",...})
+# - the longer, spaced-out label lives in "symbol", not "name". Matching on
+# "NIFTY 50" (with a space) instead of "NIFTY" was the original bug here.
 _INDEX_LOOKUP = {
-    "NIFTY": ("NSE", "NIFTY 50"),
-    "BANKNIFTY": ("NSE", "NIFTY BANK"),
-    "SENSEX": ("BSE", "SENSEX"),
+    "NIFTY": ("NSE", ["NIFTY"]),
+    "BANKNIFTY": ("NSE", ["BANKNIFTY", "NIFTY BANK", "NIFTYBANK"]),
+    "SENSEX": ("BSE", ["SENSEX"]),
 }
 
 
