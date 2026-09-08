@@ -1682,79 +1682,75 @@ function buildDashboardContent(isMobile) {
 // APP SHELL (sidebar + mobile nav + page routing)
 // ---------------------------------------------------------------------------
 function buildHeaderStats() {
-  const strip = el("div", { class: "stat-strip" });
+  const strip = el("div", { class: "stat-strip", style: "display:flex;align-items:center;gap:6px;" });
+  const badge = el("span", { style: "flex-shrink:0;font-size:9px;font-weight:700;padding:3px 7px;border-radius:10px;background:var(--border);color:var(--text2);" }, ["\u2026"]);
+  const boxesWrap = el("div", { style: "display:flex;gap:6px;overflow-x:auto;" });
+  strip.appendChild(badge);
+  strip.appendChild(boxesWrap);
   const loadingBox = el("div", { style: "font-size:11px;color:var(--text2);padding:4px 8px;" }, ["Loading market data\u2026"]);
-  strip.appendChild(loadingBox);
+  boxesWrap.appendChild(loadingBox);
+
+  function fmtChange(d) {
+    // Matches Angel One's own display: "-144.05 (-0.61%)" - point change and
+    // percent change shown together, not percent alone.
+    if (d.change_abs === undefined || d.change_abs === null) {
+      if (d.change_pct === undefined) return null;
+      return (d.change_pct >= 0 ? "+" : "") + d.change_pct + "%";
+    }
+    const sign = d.change_abs >= 0 ? "+" : "";
+    return sign + fmtINR(d.change_abs) + " (" + sign + d.change_pct + "%)";
+  }
 
   function refresh() {
-    apiFetch("/dashboard/overview").then(function (data) {
+    Promise.all([
+      apiFetch("/dashboard/overview"),
+      apiFetch("/dashboard/commodities").catch(function () { return null; }),
+    ]).then(function (results) {
+      const data = results[0], commodities = results[1];
+      if (data.live_data) {
+        badge.textContent = "\u25cf LIVE";
+        badge.style.background = "var(--call-bg)";
+        badge.style.color = "var(--bullish)";
+      } else {
+        badge.textContent = "\u25cf MOCK";
+        badge.style.background = "var(--strike-bg)";
+        badge.style.color = "var(--text2)";
+      }
       const rows = [
         ["NIFTY", data.NIFTY], ["BANK NIFTY", data.BANK_NIFTY], ["SENSEX", data.SENSEX],
         ["INDIA VIX", data.INDIA_VIX], ["ADX", data.ADX], ["RSI", data.RSI],
       ];
-      clear(strip);
+      if (commodities) {
+        rows.push(["GOLD", commodities.GOLD], ["SILVER", commodities.SILVER], ["CRUDE OIL", commodities.CRUDEOIL], ["COPPER", commodities.COPPER]);
+      }
+      clear(boxesWrap);
       rows.forEach(function (r) {
         const label = r[0], d = r[1];
         if (!d) return;
         const val = d.ltp !== undefined ? fmtINR(d.ltp) : String(d.value);
-        const chg = d.change_pct;
+        const chgText = fmtChange(d);
+        const chgUp = (d.change_abs !== undefined && d.change_abs !== null) ? d.change_abs >= 0 : (d.change_pct >= 0);
         const box = el("div", { class: "stat-box" }, [
           el("span", { class: "sname" }, [label]),
           el("span", { class: "sval" }, [val]),
         ]);
-        if (chg !== undefined) {
-          box.appendChild(el("span", { class: "schg", style: "color:" + (chg >= 0 ? "var(--bullish)" : "var(--bearish)") + ";" }, [(chg >= 0 ? "+" : "") + chg + "%"]));
+        if (chgText !== null) {
+          box.appendChild(el("span", { class: "schg", style: "color:" + (chgUp ? "var(--bullish)" : "var(--bearish)") + ";" }, [chgText]));
         }
-        strip.appendChild(box);
+        boxesWrap.appendChild(box);
       });
     }).catch(function () {
-      clear(strip);
-      strip.appendChild(el("div", { style: "font-size:11px;color:var(--text2);padding:4px 8px;" }, ["Could not load market data."]));
+      badge.textContent = "\u25cf ERR";
+      badge.style.background = "var(--put-bg)";
+      badge.style.color = "var(--bearish)";
+      clear(boxesWrap);
+      boxesWrap.appendChild(el("div", { style: "font-size:11px;color:var(--text2);padding:4px 8px;" }, ["Could not load market data."]));
     });
   }
   refresh();
   setInterval(refresh, 30000);
   strip.refreshData = refresh;
   return strip;
-}
-
-function buildTicker() {
-  const wrap = el("div", { class: "ticker-wrap" });
-  const track = el("div", { class: "ticker-track" }, [el("span", { style: "font-size:12px;color:var(--text2);" }, ["Loading market ticker\u2026"])]);
-  wrap.appendChild(track);
-
-  apiFetch("/dashboard/overview").then(function (data) {
-    const rows = [
-      ["NIFTY", data.NIFTY], ["SENSEX", data.SENSEX], ["BANK NIFTY", data.BANK_NIFTY],
-      ["INDIA VIX", data.INDIA_VIX], ["ADX", data.ADX], ["RSI", data.RSI],
-    ];
-    function buildItems() {
-      const frag = document.createDocumentFragment();
-      rows.forEach(function (r) {
-        const label = r[0], d = r[1];
-        if (!d) return;
-        const val = d.ltp !== undefined ? fmtINR(d.ltp) : String(d.value);
-        const chg = d.change_pct;
-        const item = el("span", { class: "ticker-item" }, [
-          el("span", { class: "tname" }, [label]),
-          el("span", { class: "tval" }, [val]),
-        ]);
-        if (chg !== undefined) {
-          item.appendChild(el("span", { style: "font-size:11px;font-weight:600;color:" + (chg >= 0 ? "var(--bullish)" : "var(--bearish)") + ";" }, [(chg >= 0 ? "+" : "") + chg + "%"]));
-        }
-        frag.appendChild(item);
-      });
-      return frag;
-    }
-    clear(track);
-    track.appendChild(buildItems());
-    track.appendChild(buildItems()); // duplicate for seamless loop
-  }).catch(function () {
-    clear(track);
-    track.appendChild(el("span", { style: "font-size:12px;color:var(--text2);" }, ["Could not load market ticker from the backend."]));
-  });
-
-  return wrap;
 }
 
 function renderApp(root, onLogout) {
@@ -1828,75 +1824,3 @@ function renderApp(root, onLogout) {
     } else if (active === "scanner") {
       contentArea.appendChild(buildScannerContent(isMobile));
     } else if (active === "aitrade") {
-      contentArea.appendChild(buildTradeFinderContent(isMobile));
-    } else if (active === "optionchain") {
-      contentArea.appendChild(buildOptionChainPageContent(isMobile));
-    } else if (active === "heatmap") {
-      contentArea.appendChild(buildHeatmapContent(isMobile));
-    } else if (active === "topstocks") {
-      contentArea.appendChild(buildTopStocksContent(isMobile));
-    } else if (active === "optionanalyzer") {
-      contentArea.appendChild(buildOptionAnalyzerContent(isMobile));
-    } else if (active === "aipredictions") {
-      contentArea.appendChild(buildAIPredictionsContent(isMobile));
-    } else if (active === "watchlist") {
-      contentArea.appendChild(buildWatchlistContent(isMobile));
-    } else if (active === "alerts") {
-      contentArea.appendChild(buildAlertsContent(isMobile));
-    } else if (active === "settings") {
-      contentArea.appendChild(buildSettingsContent(isMobile, onLogout));
-    } else {
-      const item = NAV_ITEMS.filter(function (n) { return n.key === active; })[0];
-      contentArea.appendChild(buildComingSoon(item ? item.label : "Dashboard"));
-    }
-  }
-
-  body.appendChild(contentArea);
-
-  window.addEventListener("ate-navigate", function (e) {
-    active = e.detail;
-    sidebarNavNodes.forEach(function (n) { n.el.className = "nav-item" + (n.key === active ? " active" : ""); });
-    renderPage();
-  });
-
-  shell.appendChild(header);
-  shell.appendChild(overlay);
-  shell.appendChild(sidebar);
-  shell.appendChild(body);
-
-  // mobile bottom nav
-  let mobileNavNodes = [];
-  if (isMobile) {
-    const bottomNav = el("div", { style: "position:fixed;bottom:0;left:0;right:0;height:64px;background:var(--card);border-top:1px solid var(--border);display:flex;z-index:20;" });
-    MOBILE_NAV.forEach(function (item) {
-      const node = el("div", { class: "mobile-nav-item" + (item.key === "dashboard" ? " active" : "") }, [icon(item.icon, 18), el("span", { style: "font-size:10px;" }, [item.label])]);
-      node.addEventListener("click", function () {
-        active = item.key;
-        mobileNavNodes.forEach(function (n) { n.el.className = "mobile-nav-item" + (n.key === active ? " active" : ""); });
-        sidebarNavNodes.forEach(function (n) { n.el.className = "nav-item" + (n.key === active ? " active" : ""); });
-        renderPage();
-      });
-      mobileNavNodes.push({ el: node, key: item.key });
-      bottomNav.appendChild(node);
-    });
-    shell.appendChild(bottomNav);
-  }
-
-  root.appendChild(shell);
-  setSidebar(sidebarOpen);
-  renderPage();
-}
-
-// ---------------------------------------------------------------------------
-// APP BOOTSTRAP
-// ---------------------------------------------------------------------------
-function boot() {
-  const root = document.getElementById("root");
-  function showAuth() { renderAuthScreen(root, showDashboard); }
-  function showDashboard() { renderApp(root, function () { clearToken(); showAuth(); }); }
-  if (getToken()) showDashboard(); else showAuth();
-}
-boot();
-</script>
-</body>
-</html>
