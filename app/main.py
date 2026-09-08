@@ -1,6 +1,7 @@
 from datetime import datetime
 import os
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
@@ -43,20 +44,27 @@ logger.info("USE_LIVE_MARKET_DATA=%s angel_one_configured=%s", USE_LIVE_MARKET_D
 def _live_index_overlay(overview: dict) -> dict:
     """Best-effort: replace NIFTY/BANK_NIFTY/SENSEX ltp+change_pct in a mock
     overview dict with real Angel One prices. ADX/RSI stay mock (Angel One
-    doesn't give those directly - that's a later step, not this one)."""
+    doesn't give those directly - that's a later step, not this one).
+    The 3 index lookups are fired in parallel (not one-after-another) since
+    each is a real network round-trip to Angel One - doing them sequentially
+    was the main cause of the app feeling slow/stuck once live mode was on."""
     if not USE_LIVE_MARKET_DATA:
         return overview
-    for underlying, key in [("NIFTY", "NIFTY"), ("BANKNIFTY", "BANK_NIFTY"), ("SENSEX", "SENSEX")]:
-        try:
-            live = angel_one_client.get_index_ltp(underlying)
-            overview[key]["ltp"] = live["ltp"]
-            overview[key]["change_pct"] = live["change_pct"]
-            overview[key]["source"] = "live"
-            logger.info("Live LTP OK for %s: %s", underlying, live)
-        except Exception as exc:
-            overview[key]["source"] = "mock"
-            overview[key]["live_error"] = str(exc)
-            logger.warning("Live LTP FAILED for %s: %s", underlying, exc)
+    targets = [("NIFTY", "NIFTY"), ("BANKNIFTY", "BANK_NIFTY"), ("SENSEX", "SENSEX")]
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        futures = {pool.submit(angel_one_client.get_index_ltp, underlying): (underlying, key) for underlying, key in targets}
+        for future in as_completed(futures):
+            underlying, key = futures[future]
+            try:
+                live = future.result()
+                overview[key]["ltp"] = live["ltp"]
+                overview[key]["change_pct"] = live["change_pct"]
+                overview[key]["source"] = "live"
+                logger.info("Live LTP OK for %s: %s", underlying, live)
+            except Exception as exc:
+                overview[key]["source"] = "mock"
+                overview[key]["live_error"] = str(exc)
+                logger.warning("Live LTP FAILED for %s: %s", underlying, exc)
     return overview
 
 
