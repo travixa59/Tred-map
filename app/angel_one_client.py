@@ -152,6 +152,18 @@ _INDEX_TOKENS = {
     "SENSEX": ("BSE", "SENSEX", "99919000"),
 }
 
+# Angel One's MCX composite commodity indices - same idea as the equity
+# indices above: stable, well-known constants, no scrip-master download
+# needed. These track a basket/composite for each commodity rather than one
+# single futures contract (which would change every expiry month and need
+# a much heavier per-contract lookup - a bigger step for later if wanted).
+_COMMODITY_TOKENS = {
+    "GOLD": ("MCX", "MCXGOLDEX", "99920003"),
+    "SILVER": ("MCX", "MCXSILVDEX", "99920002"),
+    "CRUDEOIL": ("MCX", "MCXCRUDEX", "99920000"),
+    "COPPER": ("MCX", "MCXCOPRDEX", "99920001"),
+}
+
 
 def find_symbol_token(exch_seg: str, name_candidates) -> dict | None:
     """Looks up a symbol token by exchange segment + name in the FULL scrip
@@ -176,16 +188,22 @@ _LTP_CACHE_TTL_SECONDS = 5  # short-lived: keeps a page load's several calls to 
 
 
 def get_index_ltp(underlying: str) -> dict:
-    """Real spot LTP + change% for NIFTY / BANKNIFTY / SENSEX, using the
-    hardcoded token constants above - no scrip-master download needed.
-    Cached for a few seconds so one page load (which can call this for the
-    same underlying from several endpoints - overview, nifty-zone, chain)
-    doesn't fire off several redundant real HTTP round-trips."""
+    """Real spot LTP + change% for NIFTY / BANKNIFTY / SENSEX / GOLD / SILVER
+    / CRUDEOIL / COPPER, using the hardcoded token constants above - no
+    scrip-master download needed. Cached for a few seconds so one page load
+    (which can call this for the same underlying from several endpoints -
+    overview, nifty-zone, chain) doesn't fire off several redundant real
+    HTTP round-trips."""
     cached = _ltp_cache.get(underlying)
     if cached and (time.time() - cached[0]) < _LTP_CACHE_TTL_SECONDS:
         return cached[1]
     _ensure_session()
-    exch_seg, tradingsymbol, symboltoken = _INDEX_TOKENS[underlying]
+    if underlying in _INDEX_TOKENS:
+        exch_seg, tradingsymbol, symboltoken = _INDEX_TOKENS[underlying]
+    elif underlying in _COMMODITY_TOKENS:
+        exch_seg, tradingsymbol, symboltoken = _COMMODITY_TOKENS[underlying]
+    else:
+        raise RuntimeError(f"No known token for {underlying}.")
     resp = requests.post(
         BASE_URL + "/rest/secure/angelbroking/order/v1/getLtpData",
         json={"exchange": exch_seg, "tradingsymbol": tradingsymbol, "symboltoken": symboltoken},
@@ -200,7 +218,8 @@ def get_index_ltp(underlying: str) -> dict:
     ltp = float(d["ltp"])
     close = float(d.get("close") or ltp)
     change_pct = round(((ltp - close) / close) * 100, 2) if close else 0.0
-    result = {"ltp": ltp, "change_pct": change_pct}
+    change_abs = round(ltp - close, 2)
+    result = {"ltp": ltp, "change_pct": change_pct, "change_abs": change_abs}
     _ltp_cache[underlying] = (time.time(), result)
     return result
 
