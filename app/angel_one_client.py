@@ -137,12 +137,29 @@ def _load_scrip_master() -> list:
     return _scrip_master_cache
 
 
+# Index name -> (exchange segment, tradingsymbol, symboltoken) - HARDCODED.
+# These are Angel One's own well-known, stable index tokens (confirmed from
+# their public "real-time market data for 120 indices" release notes and
+# historical-data docs), used directly instead of looking them up in the
+# scrip master. That master file is tens of MB and was the actual cause of
+# the app feeling slow/stuck: Render's free tier recycles the process on
+# every spin-down/wake cycle, so the whole file was getting re-downloaded
+# and re-parsed on almost every request burst. Skipping it entirely for
+# just these 3 indices removes that bottleneck completely.
+_INDEX_TOKENS = {
+    "NIFTY": ("NSE", "Nifty 50", "99926000"),
+    "BANKNIFTY": ("NSE", "Nifty Bank", "99926009"),
+    "SENSEX": ("BSE", "SENSEX", "99919000"),
+}
+
+
 def find_symbol_token(exch_seg: str, name_candidates) -> dict | None:
-    """Looks up a symbol token by exchange segment + name. `name_candidates`
-    can be a single string or a list of possible values to try in order -
-    Angel One's scrip master naming isn't perfectly predictable across
-    indices, so we try a couple of reasonable variants instead of hardcoding
-    exactly one and failing silently on a mismatch."""
+    """Looks up a symbol token by exchange segment + name in the FULL scrip
+    master. Kept as a fallback/general-purpose lookup (e.g. for individual
+    option contracts later) - get_index_ltp no longer uses this for the 3
+    indices, since _INDEX_TOKENS above is faster and avoids downloading the
+    whole file just for 3 well-known constants. `name_candidates` can be a
+    single string or a list of possible values to try in order."""
     if isinstance(name_candidates, str):
         name_candidates = [name_candidates]
     rows = _load_scrip_master()
@@ -153,27 +170,14 @@ def find_symbol_token(exch_seg: str, name_candidates) -> dict | None:
     return None
 
 
-# Index name -> (exchange segment, [candidate scrip-master "name" values]) for
-# spot LTP lookup. NOTE: Angel One's scrip master uses SHORT codes in the
-# "name" field (e.g. {"symbol":"Nifty 50","name":"NIFTY","exch_seg":"NSE",...})
-# - the longer, spaced-out label lives in "symbol", not "name". Matching on
-# "NIFTY 50" (with a space) instead of "NIFTY" was the original bug here.
-_INDEX_LOOKUP = {
-    "NIFTY": ("NSE", ["NIFTY"]),
-    "BANKNIFTY": ("NSE", ["BANKNIFTY", "NIFTY BANK", "NIFTYBANK"]),
-    "SENSEX": ("BSE", ["SENSEX"]),
-}
-
-
 _ltp_cache = {}  # underlying -> (fetched_at_epoch_seconds, {"ltp":..., "change_pct":...})
 _LTP_CACHE_TTL_SECONDS = 5  # short-lived: keeps a page load's several calls to the
 # same index from each hitting Angel One separately, without going stale for a trial
 
 
 def get_index_ltp(underlying: str) -> dict:
-    """Real spot LTP + change% for NIFTY / BANKNIFTY / SENSEX.
-    Falls back to raising if the underlying isn't in _INDEX_LOOKUP -
-    callers should catch and fall back to mock_data in that case.
+    """Real spot LTP + change% for NIFTY / BANKNIFTY / SENSEX, using the
+    hardcoded token constants above - no scrip-master download needed.
     Cached for a few seconds so one page load (which can call this for the
     same underlying from several endpoints - overview, nifty-zone, chain)
     doesn't fire off several redundant real HTTP round-trips."""
@@ -181,13 +185,10 @@ def get_index_ltp(underlying: str) -> dict:
     if cached and (time.time() - cached[0]) < _LTP_CACHE_TTL_SECONDS:
         return cached[1]
     _ensure_session()
-    exch_seg, name = _INDEX_LOOKUP[underlying]
-    row = find_symbol_token(exch_seg, name)
-    if row is None:
-        raise RuntimeError(f"Could not find a symbol token for {underlying} in the scrip master.")
+    exch_seg, tradingsymbol, symboltoken = _INDEX_TOKENS[underlying]
     resp = requests.post(
         BASE_URL + "/rest/secure/angelbroking/order/v1/getLtpData",
-        json={"exchange": exch_seg, "tradingsymbol": row["symbol"], "symboltoken": row["token"]},
+        json={"exchange": exch_seg, "tradingsymbol": tradingsymbol, "symboltoken": symboltoken},
         headers=_headers(),
         timeout=10,
     )
