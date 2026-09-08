@@ -27,15 +27,36 @@ def _seeded_random(symbol: str) -> random.Random:
     return random.Random(symbol)
 
 
+def _with_change_abs(ltp: float, change_pct: float) -> dict:
+    """Given an ltp and change_pct, derives the absolute point change too -
+    e.g. ltp=23,650 change_pct=-0.61 -> change_abs=-144.05 - so the frontend
+    can show 'ltp   -144.05 (-0.61%)' together, same as Angel One's own app."""
+    close = ltp / (1 + change_pct / 100) if (1 + change_pct / 100) else ltp
+    return {"ltp": ltp, "change_pct": change_pct, "change_abs": round(ltp - close, 2)}
+
+
 def generate_market_overview() -> dict:
     return {
-        "NIFTY": {"ltp": round(24950.40 + random.uniform(-50, 50), 2), "change_pct": round(random.uniform(-1, 1.2), 2)},
-        "BANK_NIFTY": {"ltp": round(53621.45 + random.uniform(-100, 100), 2), "change_pct": round(random.uniform(-1, 1.5), 2)},
-        "SENSEX": {"ltp": round(81330.56 + random.uniform(-150, 150), 2), "change_pct": round(random.uniform(-1, 1), 2)},
+        "NIFTY": _with_change_abs(round(24950.40 + random.uniform(-50, 50), 2), round(random.uniform(-1, 1.2), 2)),
+        "BANK_NIFTY": _with_change_abs(round(53621.45 + random.uniform(-100, 100), 2), round(random.uniform(-1, 1.5), 2)),
+        "SENSEX": _with_change_abs(round(81330.56 + random.uniform(-150, 150), 2), round(random.uniform(-1, 1), 2)),
         "INDIA_VIX": {"value": round(14.32 + random.uniform(-2, 2), 2), "change_pct": round(random.uniform(-3, 3), 2)},
         "ADX": {"value": round(random.uniform(14, 38), 1), "change_pct": round(random.uniform(-4, 4), 2)},
         "RSI": {"value": round(random.uniform(35, 70), 1), "change_pct": round(random.uniform(-3, 3), 2)},
         "market_regime": random.choice(["STRONG_BULLISH", "BULLISH", "SIDEWAYS", "BEARISH", "STRONG_BEARISH"]),
+    }
+
+
+def generate_commodity_overview() -> dict:
+    """Mock fallback for the MCX composite commodity indices (GOLD/SILVER/
+    CRUDEOIL/COPPER). Base numbers here are placeholder scale - once live
+    (USE_LIVE_MARKET_DATA=true), these get overwritten by Angel One's real
+    MCXGOLDEX/MCXSILVDEX/MCXCRUDEX/MCXCOPRDEX composite index values."""
+    return {
+        "GOLD": _with_change_abs(round(10500 + random.uniform(-150, 150), 2), round(random.uniform(-1.5, 1.5), 2)),
+        "SILVER": _with_change_abs(round(8200 + random.uniform(-120, 120), 2), round(random.uniform(-2, 2), 2)),
+        "CRUDEOIL": _with_change_abs(round(9700 + random.uniform(-200, 200), 2), round(random.uniform(-2.5, 2.5), 2)),
+        "COPPER": _with_change_abs(round(7300 + random.uniform(-100, 100), 2), round(random.uniform(-1.5, 1.5), 2)),
     }
 
 
