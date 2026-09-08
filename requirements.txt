@@ -8,3 +8,5 @@ python-multipart==0.0.9
 pydantic==2.9.2
 email-validator==2.2.0
 psycopg2-binary==2.9.9
+requests
+pyotp
