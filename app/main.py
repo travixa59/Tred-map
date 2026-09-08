@@ -41,31 +41,39 @@ USE_LIVE_MARKET_DATA = os.environ.get("USE_LIVE_MARKET_DATA", "false").lower() =
 logger.info("USE_LIVE_MARKET_DATA=%s angel_one_configured=%s", USE_LIVE_MARKET_DATA, angel_one_client.is_configured())
 
 
-def _live_index_overlay(overview: dict) -> dict:
-    """Best-effort: replace NIFTY/BANK_NIFTY/SENSEX ltp+change_pct in a mock
-    overview dict with real Angel One prices. ADX/RSI stay mock (Angel One
-    doesn't give those directly - that's a later step, not this one).
-    The 3 index lookups are fired in parallel (not one-after-another) since
-    each is a real network round-trip to Angel One - doing them sequentially
-    was the main cause of the app feeling slow/stuck once live mode was on."""
+def _live_overlay(data: dict, targets: list) -> dict:
+    """Generic version: best-effort replace ltp+change_pct for each (angel_name,
+    data_key) pair in `targets` with real Angel One prices, fetched in
+    parallel (not one-after-another) since each is a real network round-trip -
+    doing them sequentially was the main cause of the app feeling slow/stuck
+    once live mode was on."""
     if not USE_LIVE_MARKET_DATA:
-        return overview
-    targets = [("NIFTY", "NIFTY"), ("BANKNIFTY", "BANK_NIFTY"), ("SENSEX", "SENSEX")]
-    with ThreadPoolExecutor(max_workers=3) as pool:
+        return data
+    with ThreadPoolExecutor(max_workers=max(1, len(targets))) as pool:
         futures = {pool.submit(angel_one_client.get_index_ltp, underlying): (underlying, key) for underlying, key in targets}
         for future in as_completed(futures):
             underlying, key = futures[future]
             try:
                 live = future.result()
-                overview[key]["ltp"] = live["ltp"]
-                overview[key]["change_pct"] = live["change_pct"]
-                overview[key]["source"] = "live"
+                data[key]["ltp"] = live["ltp"]
+                data[key]["change_pct"] = live["change_pct"]
+                data[key]["change_abs"] = live.get("change_abs")
+                data[key]["source"] = "live"
                 logger.info("Live LTP OK for %s: %s", underlying, live)
             except Exception as exc:
-                overview[key]["source"] = "mock"
-                overview[key]["live_error"] = str(exc)
+                data[key]["source"] = "mock"
+                data[key]["live_error"] = str(exc)
                 logger.warning("Live LTP FAILED for %s: %s", underlying, exc)
-    return overview
+    return data
+
+
+def _live_index_overlay(overview: dict) -> dict:
+    """ADX/RSI stay mock (Angel One doesn't give those directly - a later step)."""
+    return _live_overlay(overview, [("NIFTY", "NIFTY"), ("BANKNIFTY", "BANK_NIFTY"), ("SENSEX", "SENSEX")])
+
+
+def _live_commodity_overlay(commodities: dict) -> dict:
+    return _live_overlay(commodities, [("GOLD", "GOLD"), ("SILVER", "SILVER"), ("CRUDEOIL", "CRUDEOIL"), ("COPPER", "COPPER")])
 
 
 # ---------------------------------------------------------------------------
@@ -109,6 +117,13 @@ def market_overview(current_user: models.User = Depends(auth.get_current_user)):
     overview = mock_data.generate_market_overview()
     overview = _live_index_overlay(overview)
     return {**overview, "disclaimer": DISCLAIMER, "live_data": USE_LIVE_MARKET_DATA}
+
+
+@app.get("/dashboard/commodities")
+def commodity_overview(current_user: models.User = Depends(auth.get_current_user)):
+    commodities = mock_data.generate_commodity_overview()
+    commodities = _live_commodity_overlay(commodities)
+    return {**commodities, "disclaimer": DISCLAIMER, "live_data": USE_LIVE_MARKET_DATA}
 
 
 @app.get("/dashboard/top-bullish")
