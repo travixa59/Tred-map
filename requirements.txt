@@ -11,3 +11,4 @@ psycopg2-binary==2.9.9
 requests
 pyotp
 google-genai
+from . import strategies
