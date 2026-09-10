@@ -193,3 +193,60 @@ def run_all_strategies(snapshot: dict) -> dict:
         "silent_count": len(silent),
         "total_count": len(ALL_STRATEGIES),
     }
+def oi_cluster_support_resistance_strategy(chain: dict) -> StrategySignal | None:
+    """OI Cluster + Support/Resistance + Market Reaction strategy.
+
+    Works off the option chain's own calls/puts lists (mock_data.generate_mock_option_chain):
+    each call/put dict already has strike, oi, oi_change_pct. Needs at least
+    3 strikes on each side to form a cluster around ATM."""
+    calls = chain.get("calls") or []
+    puts = chain.get("puts") or []
+    if len(calls) < 3 or len(puts) < 3:
+        return None
+
+    spot = chain["spot"]
+
+    # Step 1: Support = strike with highest Put OI, Resistance = strike with highest Call OI
+    support_row = max(puts, key=lambda p: p["oi"])
+    resistance_row = max(calls, key=lambda c: c["oi"])
+    support = support_row["strike"]
+    resistance = resistance_row["strike"]
+    if support >= resistance:
+        return None  # unclear structure, don't guess
+
+    put_oi_change_pct = support_row["oi_change_pct"]
+    call_oi_change_pct = resistance_row["oi_change_pct"]
+
+    support_strengthening = put_oi_change_pct > 5
+    support_weakening = put_oi_change_pct < -5
+    resistance_strengthening = call_oi_change_pct > 5
+    resistance_weakening = call_oi_change_pct < -5
+
+    near_support = spot <= support * 1.005
+    near_resistance = spot >= resistance * 0.995
+    broke_resistance = spot > resistance
+    broke_support = spot < support
+
+    reasons = [f"Support {support} (highest Put OI), Resistance {resistance} (highest Call OI)"]
+
+    if support_strengthening and near_support and not broke_support:
+        reasons.append(f"Put OI building at support ({put_oi_change_pct:+.1f}%), support holding")
+        if resistance_weakening:
+            reasons.append(f"Call OI unwinding at resistance ({call_oi_change_pct:+.1f}%) - resistance weak")
+        return StrategySignal("OI Cluster S/R", "BULLISH", "; ".join(reasons))
+
+    if broke_resistance and resistance_weakening:
+        reasons.append(f"Call OI unwinding ({call_oi_change_pct:+.1f}%), price broke resistance {resistance}")
+        return StrategySignal("OI Cluster S/R", "BULLISH", "; ".join(reasons))
+
+    if resistance_strengthening and near_resistance and not broke_resistance:
+        reasons.append(f"Call OI building at resistance ({call_oi_change_pct:+.1f}%), resistance holding")
+        if support_weakening:
+            reasons.append(f"Put OI unwinding at support ({put_oi_change_pct:+.1f}%) - support weak")
+        return StrategySignal("OI Cluster S/R", "BEARISH", "; ".join(reasons))
+
+    if broke_support and support_weakening:
+        reasons.append(f"Put OI unwinding ({put_oi_change_pct:+.1f}%), price broke support {support}")
+        return StrategySignal("OI Cluster S/R", "BEARISH", "; ".join(reasons))
+
+    return None  # NO TRADE condition - unclear/contradictory, don't force a signal
