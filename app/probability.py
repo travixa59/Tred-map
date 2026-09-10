@@ -20,7 +20,7 @@ calibration should be plugged in.
 
 from dataclasses import dataclass
 
-import strategies
+from . import strategies
 
 
 @dataclass
