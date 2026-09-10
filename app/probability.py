@@ -270,6 +270,7 @@ def find_best_trade(chain: dict, bullish_probability: float) -> dict:
     spot = chain["spot"]
 
     candidates = []
+  oi_cluster_signal = strategies.oi_cluster_support_resistance_strategy(chain)
     for opt in chain["calls"]:
         candidates.append(evaluate_strike_candidate(opt, "CE", bullish_probability, spot))
     for opt in chain["puts"]:
@@ -297,14 +298,30 @@ def find_best_trade(chain: dict, bullish_probability: float) -> dict:
         }
 
     best = qualified[0]
+ best = qualified[0]
+    best_reasons = list(best["reasons"])
+    if oi_cluster_signal is not None:
+        agrees = (oi_cluster_signal.signal == "BULLISH" and best["option_type"] == "CE") or \
+                 (oi_cluster_signal.signal == "BEARISH" and best["option_type"] == "PE")
+        if agrees:
+            best_reasons.append(f"OI Cluster S/R confirms: {oi_cluster_signal.reason}")
+    best = {**best, "reasons": best_reasons}
     invalidation = [
         "Price breaks back below the entry structure (support/VWAP breakdown for CE, resistance/VWAP reclaim for PE)",
         "Probability drops below the entry threshold as new data comes in",
-        f"Stop loss at \u20b9{best['stop_loss']} is hit",
+        f"Stop loss at \u20b9{best['stop_loss']} is hit
     ]
     return {
         "status": "TRADE_FOUND",
         "best_trade": {**best, "invalidation": invalidation},
         "top_candidates": top_5,
         "reason": None,
+    }
+      return {
+        "status": "TRADE_FOUND",
+        "best_trade": {**best, "invalidation": invalidation},
+        "top_candidates": top_5,
+        "oi_cluster_signal": oi_cluster_signal.reason if oi_cluster_signal else None,
+        "reason": None,
+    
     }
