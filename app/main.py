@@ -277,6 +277,20 @@ def option_chain(
     spot = _resolve_spot(underlying)
     chain = mock_data.generate_mock_option_chain(underlying, spot, expiry)
     chain = _live_greeks_overlay(chain, underlying, expiry)
+
+    # Same scoring evaluate_strike_candidate() uses for the best-setup pick,
+    # applied to every strike here too - so any consumer of the full chain
+    # (e.g. the dashboard's Option Chain preview card) can show a real,
+    # consistently-computed probability per strike instead of a separate
+    # made-up number.
+    direction_snapshot = mock_data.generate_stock_snapshot(underlying)
+    underlying_result = probability.score_stock(direction_snapshot)
+    bearish_probability = round(100 - underlying_result.probability, 1)
+    for c in chain["calls"]:
+        c["probability"] = probability.evaluate_strike_candidate(c, "CE", underlying_result.probability, spot)["probability"]
+    for p in chain["puts"]:
+        p["probability"] = probability.evaluate_strike_candidate(p, "PE", bearish_probability, spot)["probability"]
+
     return {**chain, "disclaimer": DISCLAIMER}
 
 
@@ -298,37 +312,25 @@ def _compute_best_setup(underlying: str, expiry: str) -> dict:
     # it never overrides which strike the OI data chose.
     oi_favored_calls = [c for c in chain["calls"] if c["final_signal"] == "CALL BUY"]
     best_call = max(oi_favored_calls or chain["calls"], key=lambda c: abs(c["oi_change_value"]))
-    call_score = probability.score_option("BULLISH", best_call["oi_change_pct"], best_call["iv"], underlying_result.probability)
 
     oi_favored_puts = [p for p in chain["puts"] if p["final_signal"] == "PUT BUY"]
     best_put = max(oi_favored_puts or chain["puts"], key=lambda p: abs(p["oi_change_value"]))
-    put_score = probability.score_option("BEARISH", best_put["oi_change_pct"], best_put["iv"], 100 - underlying_result.probability)
 
-    def build_setup(option, score, option_type):
-        entry = option["ltp"]
-        return {
-            "symbol": underlying,
-            "strike": option["strike"],
-            "option_type": option_type,
-            "expiry": expiry,
-            "probability": score.probability,
-            "buy_range_low": round(entry * 0.98, 2),
-            "buy_range_high": round(entry * 1.02, 2),
-            "target_1": round(entry * 1.10, 2),
-            "target_2": round(entry * 1.20, 2),
-            "target_3": round(entry * 1.30, 2),
-            "stop_loss": round(entry * 0.90, 2),
-            "risk_reward": "1:2+",
-            "reasons": score.reasons,
-        }
+    # Same scoring function find_best_trade() uses per-candidate - real
+    # ATR-based targets, a real risk_reward number (not a hardcoded string),
+    # and the liquidity/moneyness/IV checks, instead of a separate naive
+    # entry*1.1/1.2/1.3 calc that skipped all of that.
+    def build_setup(option, option_type, direction_probability):
+        result = probability.evaluate_strike_candidate(option, option_type, direction_probability, spot)
+        return {"symbol": underlying, "expiry": expiry, **result}
 
     return {
         "spot": spot,
         "chain": chain,
         "underlying_probability": underlying_result.probability,
         "underlying_reasons": underlying_result.reasons,
-        "best_ce": build_setup(best_call, call_score, "CE"),
-        "best_pe": build_setup(best_put, put_score, "PE"),
+        "best_ce": build_setup(best_call, "CE", underlying_result.probability),
+        "best_pe": build_setup(best_put, "PE", 100 - underlying_result.probability),
     }
 
 
