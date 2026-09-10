@@ -10,5 +10,5 @@ email-validator==2.2.0
 psycopg2-binary==2.9.9
 requests
 pyotp
-google-genai-api
+ai-engine
 
