@@ -53,7 +53,7 @@ def generate_sector_performance() -> list[dict]:
     """DEMO/mock sector-wise %change strip (the coloured bar row at the top
     of the reference 'Market Overview' page). Real version would aggregate
     live %change across all FNO stocks per sector."""
-    rnd = _seeded_random("sector-perf" + str(random.random()))
+    rnd = _seeded_random("sector-perf")
     rows = [{"sector": s, "change_pct": round(rnd.uniform(-2.5, 1.0), 2)} for s in SECTOR_NAMES]
     rows.sort(key=lambda r: r["change_pct"], reverse=True)
     return rows
@@ -72,7 +72,7 @@ def generate_market_overview() -> dict:
 
 
 def generate_stock_snapshot(symbol: str) -> dict:
-    rnd = _seeded_random(symbol + str(random.random()))
+    rnd = _seeded_random(symbol)
     base_price = round(rnd.uniform(200, 4000), 2)
     change_pct = round(rnd.uniform(-3, 3), 2)
     pdc = round(base_price / (1 + change_pct / 100), 2) if (1 + change_pct / 100) else base_price
@@ -113,12 +113,12 @@ def generate_timeframe_zones() -> dict:
     """Mock multi-timeframe market bias, similar to a 'Nifty Zone' panel:
     each timeframe independently mock-classified as bullish/bearish."""
     timeframes = ["5 MIN", "15 MIN", "30 MIN", "1 HR", "1 DAY", "1 WEEK"]
-    rnd = _seeded_random("timeframe-zones" + str(random.random()))
+    rnd = _seeded_random("timeframe-zones")
     return {tf: rnd.choice(["BULLISH", "BEARISH"]) for tf in timeframes}
 
 
 def generate_advance_decline() -> dict:
-    rnd = _seeded_random("adv-decl" + str(random.random()))
+    rnd = _seeded_random("adv-decl")
     advances = rnd.randint(600, 1800)
     declines = rnd.randint(400, 1600)
     return {"advances": advances, "declines": declines}
@@ -128,7 +128,7 @@ def generate_nifty_zone(spot: float, underlying: str = "NIFTY") -> dict:
     """Pivot-point support/resistance 'zone' panel (mirrors the NIFTY ZONE
     box from the reference dashboard): PDC/open/day-range plus classic
     pivot S1-S4 / R1-R4 levels, and a highlighted 'current zone' band."""
-    rnd = _seeded_random("nifty-zone-" + underlying + str(random.random()))
+    rnd = _seeded_random("nifty-zone-" + underlying)
     pdc = round(spot - rnd.uniform(-90, 90), 2)
     open_ = round(pdc + rnd.uniform(-45, 45), 2)
     low = round(min(open_, spot) - rnd.uniform(15, 60), 2)
@@ -165,7 +165,7 @@ def generate_market_breadth() -> dict:
     """Advance/Decline/Unchanged breakdown for NIFTY 50 / NIFTY BANK / FNO,
     for both the pre-open session and the current live session."""
     def _breadth(seed: str) -> dict:
-        rnd = _seeded_random(seed + str(random.random()))
+        rnd = _seeded_random(seed)
         return {
             "advances": rnd.randint(4, 100),
             "declines": rnd.randint(4, 130),
@@ -246,7 +246,7 @@ def generate_mock_news(symbol: str, count: int = 3) -> list[dict]:
     (e.g. a news aggregator or broker news feed) later; everything else
     (ai_engine.py) only depends on this list-of-dicts shape, not on where
     the headlines came from."""
-    rnd = _seeded_random("news-" + symbol + str(random.random()))
+    rnd = _seeded_random("news-" + symbol)
     sentiments = rnd.choices(["POSITIVE", "NEGATIVE", "NEUTRAL"], k=count)
     return [
         {
@@ -317,6 +317,8 @@ def generate_mock_option_chain(underlying: str, spot: float, expiry: str) -> dic
             "bid": round(call_ltp - rnd.uniform(0.3, 1.5), 2),
             "ask": round(call_ltp + rnd.uniform(0.3, 1.5), 2),
             "volume": rnd.randint(1000, 100_000),
+            "greeks_source": "mock",
+            "option_source": "mock",
         })
         puts.append({
             "strike": strike,
@@ -335,6 +337,8 @@ def generate_mock_option_chain(underlying: str, spot: float, expiry: str) -> dic
             "bid": round(put_ltp - rnd.uniform(0.3, 1.5), 2),
             "ask": round(put_ltp + rnd.uniform(0.3, 1.5), 2),
             "volume": rnd.randint(1000, 100_000),
+            "greeks_source": "mock",
+            "option_source": "mock",
         })
 
     # --- OI-buildup multiplier vs the chain's own average add, per side ---
@@ -386,7 +390,7 @@ def generate_oi_bias_timeframes(overall_bias: str) -> dict:
     """Mock multi-timeframe OI bias strip (OI / LATEST / 3M / 5M / 15M / 30M),
     mostly agreeing with the chain-wide OI bias with a little noise per timeframe -
     mirrors the reference dashboard's bias row."""
-    rnd = _seeded_random("oi-bias-tf" + str(random.random()))
+    rnd = _seeded_random("oi-bias-tf")
     other = "BULLISH" if overall_bias == "BEARISH" else "BEARISH"
     labels = ["OI", "LATEST", "3M", "5M", "15M", "30M"]
     return {lbl: (overall_bias if rnd.random() > 0.15 else other) for lbl in labels}
