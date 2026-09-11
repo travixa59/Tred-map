@@ -206,12 +206,91 @@ def fno_stocks(current_user: models.User = Depends(auth.get_current_user)):
     return {"stocks": mock_data.NIFTY_50_SAMPLE, "disclaimer": DISCLAIMER}
 
 
+def _real_nifty_zone(spot: float, underlying: str) -> dict:
+    """Classic floor-trader pivot (Pivot/R1-R4/S1-S4) computed from REAL
+    previous-day High/Low/Close via Angel One's historical candle API -
+    same formula mock_data.generate_nifty_zone uses, but fed real PDH/PDL/PDC
+    instead of randomised ones, so the levels are actually meaningful for
+    trading and stay fixed for the whole day (only the live spot moves)."""
+    ohlc = angel_one_client.get_previous_day_ohlc(underlying)
+    pdh, pdl, pdc = ohlc["pdh"], ohlc["pdl"], ohlc["pdc"]
+
+    pivot = round((pdh + pdl + pdc) / 3, 2)
+    r1 = round(2 * pivot - pdl, 2)
+    s1 = round(2 * pivot - pdh, 2)
+    r2 = round(pivot + (pdh - pdl), 2)
+    s2 = round(pivot - (pdh - pdl), 2)
+    r3 = round(pdh + 2 * (pivot - pdl), 2)
+    s3 = round(pdl - 2 * (pdh - pivot), 2)
+    r4 = round(r3 + (r2 - r1), 2)
+    s4 = round(s3 - (s1 - s2), 2)
+
+    # "average touch zone" - where price has been oscillating around today,
+    # taken as a band around the pivot and today's spot (not the day's
+    # actual high/low, which the frontend already shows separately).
+    avg = round((pivot + spot) / 2, 2)
+    zone_low = round(min(s1, avg - abs(spot - pivot) - 20), 2)
+    zone_high = round(max(r1, avg + abs(spot - pivot) + 20), 2)
+
+    return {
+        "index": underlying,
+        "pdc": pdc, "open": spot, "low": min(pdl, spot), "high": max(pdh, spot),
+        "low_30": round(min(pdl, spot) - 20, 2), "high_30": round(max(pdh, spot) + 20, 2),
+        "avg": avg, "pivot_close": pdc,
+        "supports": {"S1": s1, "S2": s2, "S3": s3, "S4": s4},
+        "resistances": {"R1": r1, "R2": r2, "R3": r3, "R4": r4},
+        "zone": {"low": zone_low, "high": zone_high},
+        "pdh": pdh, "pdl": pdl,
+        "source": "live",
+    }
+
+
+def _get_zone_data(spot: float, underlying: str) -> dict:
+    """Shared by /dashboard/nifty-zone and the Trade Map zone badge - real
+    pivot zone first (live mode), mock as the fallback. Kept as one place so
+    both features always agree on which zone NIFTY is actually in."""
+    if USE_LIVE_MARKET_DATA:
+        try:
+            zone = _real_nifty_zone(spot, underlying)
+            return zone
+        except Exception as exc:
+            logger.warning("Live nifty-zone FAILED for %s: %s - falling back to mock", underlying, exc)
+            mock_zone = mock_data.generate_nifty_zone(spot, underlying)
+            mock_zone["source"] = "mock"
+            mock_zone["zone_live_error"] = str(exc)
+            return mock_zone
+    mock_zone = mock_data.generate_nifty_zone(spot, underlying)
+    mock_zone["source"] = "mock"
+    return mock_zone
+
+
+def _nearest_zone_label(spot: float, zone: dict) -> dict:
+    """Which real support/resistance level `spot` is closest to right now,
+    e.g. {'label': 'Near R1', 'kind': 'resistance', 'bias': 'BULLISH'} - this
+    is the actual real-data version of the static 'MARKET BULLISH S1'-style
+    badge, instead of a hardcoded/repeated label."""
+    levels = [("PC", zone.get("pivot_close"))]
+    for k, v in (zone.get("supports") or {}).items():
+        levels.append((k, v))
+    for k, v in (zone.get("resistances") or {}).items():
+        levels.append((k, v))
+    levels = [(k, v) for k, v in levels if v is not None]
+    if not levels:
+        return {"label": None, "kind": None, "bias": None}
+    nearest_key, nearest_val = min(levels, key=lambda kv: abs(kv[1] - spot))
+    kind = "support" if nearest_key.startswith("S") else ("resistance" if nearest_key.startswith("R") else "pivot")
+    pivot = zone.get("pivot_close") or nearest_val
+    bias = "BULLISH" if spot >= pivot else "BEARISH"
+    return {"label": "Near " + nearest_key, "kind": kind, "bias": bias}
+
+
 @app.get("/dashboard/nifty-zone")
 def nifty_zone(underlying: str = "NIFTY", current_user: models.User = Depends(auth.get_current_user)):
     overview = mock_data.generate_market_overview()
     overview = _live_index_overlay(overview)
     spot = _spot_for(underlying, overview)
-    return {**mock_data.generate_nifty_zone(spot, underlying), "disclaimer": DISCLAIMER}
+    zone = _get_zone_data(spot, underlying)
+    return {**zone, "disclaimer": DISCLAIMER}
 
 
 @app.get("/dashboard/market-breadth")
@@ -232,6 +311,43 @@ def _to_angel_expiry(expiry_iso: str) -> str:
     """'2026-09-25' -> '25SEP2026' (Angel One's own expiry-date format)."""
     dt = datetime.strptime(expiry_iso, "%Y-%m-%d")
     return dt.strftime("%d%b%Y").upper()
+
+
+_FALLBACK_EXPIRY = "2026-09-25"  # only used in mock mode / if the live expiry lookup itself fails
+
+
+def _resolve_expiry(underlying: str, expiry: str | None) -> str:
+    """If the caller didn't pass an explicit expiry, resolve the REAL
+    nearest listed expiry from Angel One (live mode) instead of a hardcoded
+    date. A hardcoded expiry silently goes stale the moment that date
+    passes (or if it was never a real listed expiry to begin with) - and
+    Angel's optionGreek endpoint just returns 'No Data Available' for a
+    date it doesn't recognise, which is why Greeks were never activating
+    even with live mode on and valid credentials."""
+    if expiry:
+        return expiry
+    if USE_LIVE_MARKET_DATA:
+        try:
+            return angel_one_client.get_nearest_expiry(underlying)
+        except Exception as exc:
+            logger.warning("Live nearest-expiry lookup FAILED for %s: %s - using fallback date", underlying, exc)
+    return _FALLBACK_EXPIRY
+
+
+@app.get("/options/expiries")
+def option_expiries(underlying: str = "NIFTY", current_user: models.User = Depends(auth.get_current_user)):
+    """Real list of Angel One's currently-listed expiries for `underlying`
+    - powers an Expiry dropdown so the frontend never has to guess/hardcode
+    a date. Falls back to a single mock date if live mode is off or the
+    lookup fails."""
+    if USE_LIVE_MARKET_DATA:
+        try:
+            expiries = angel_one_client.get_available_expiries(underlying)
+            return {"expiries": expiries, "source": "live", "disclaimer": DISCLAIMER}
+        except Exception as exc:
+            logger.warning("Live expiries lookup FAILED for %s: %s", underlying, exc)
+            return {"expiries": [_FALLBACK_EXPIRY], "source": "mock", "live_error": str(exc), "disclaimer": DISCLAIMER}
+    return {"expiries": [_FALLBACK_EXPIRY], "source": "mock", "disclaimer": DISCLAIMER}
 
 
 def _live_option_quote_overlay(chain: dict, underlying: str, expiry: str) -> dict:
@@ -306,9 +422,10 @@ def _live_greeks_overlay(chain: dict, underlying: str, expiry: str) -> dict:
 @app.get("/options/chain")
 def option_chain(
     underlying: str = "NIFTY",
-    expiry: str = "2026-09-25",
+    expiry: str | None = None,
     current_user: models.User = Depends(auth.get_current_user),
 ):
+    expiry = _resolve_expiry(underlying, expiry)
     spot = _resolve_spot(underlying)
     chain = mock_data.generate_mock_option_chain(underlying, spot, expiry)
     chain = _live_greeks_overlay(chain, underlying, expiry)
@@ -365,9 +482,15 @@ def _compute_best_setup(underlying: str, expiry: str) -> dict:
         result = probability.evaluate_strike_candidate(option, option_type, direction_probability, spot)
         return {"symbol": underlying, "expiry": expiry, **result}
 
+    zone_label = None
+    if underlying in _INDEX_UNDERLYINGS:
+        zone = _get_zone_data(spot, underlying)
+        zone_label = _nearest_zone_label(spot, zone)
+
     return {
         "spot": spot,
         "chain": chain,
+        "zone_label": zone_label,
         "underlying_probability": underlying_result.probability,
         "underlying_reasons": underlying_result.reasons,
         "best_ce": build_setup(best_call, "CE", underlying_result.probability),
@@ -378,9 +501,10 @@ def _compute_best_setup(underlying: str, expiry: str) -> dict:
 @app.get("/options/best-setup")
 def best_setup(
     underlying: str = "NIFTY",
-    expiry: str = "2026-09-25",
+    expiry: str | None = None,
     current_user: models.User = Depends(auth.get_current_user),
 ):
+    expiry = _resolve_expiry(underlying, expiry)
     result = _compute_best_setup(underlying, expiry)
     return {"best_ce": result["best_ce"], "best_pe": result["best_pe"], "disclaimer": DISCLAIMER}
 
@@ -427,9 +551,10 @@ def scanner_overview(current_user: models.User = Depends(auth.get_current_user))
 @app.get("/aitrade/best-trade")
 def ai_trade_finder(
     underlying: str = "NIFTY",
-    expiry: str = "2026-09-25",
+    expiry: str | None = None,
     current_user: models.User = Depends(auth.get_current_user),
 ):
+    expiry = _resolve_expiry(underlying, expiry)
     spot = _resolve_spot(underlying)
     chain = mock_data.generate_mock_option_chain(underlying, spot, expiry)
     # Use the same live option data as /options/chain and /options/best-setup.
@@ -440,10 +565,15 @@ def ai_trade_finder(
     underlying_result = probability.score_stock(direction_snapshot)
 
     result = probability.find_best_trade(chain, underlying_result.probability)
+    zone_label = None
+    if underlying in _INDEX_UNDERLYINGS:
+        zone = _get_zone_data(spot, underlying)
+        zone_label = _nearest_zone_label(spot, zone)
     return {
         "underlying": underlying,
         "spot": spot,
         "expiry": expiry,
+        "zone_label": zone_label,
         **result,
         "disclaimer": DISCLAIMER,
     }
@@ -452,7 +582,7 @@ def ai_trade_finder(
 @app.get("/aitrade/ai-analysis")
 def ai_trade_analysis(
     underlying: str = "NIFTY",
-    expiry: str = "2026-09-25",
+    expiry: str | None = None,
     current_user: models.User = Depends(auth.get_current_user),
 ):
     """Claude-powered second opinion on top of the OI-first rule engine
@@ -460,6 +590,7 @@ def ai_trade_analysis(
     reviews the engine's own pick against the indicator reasons and
     (currently mock) news, and returns a plain-English verdict, a
     confidence label, and what it sees as the biggest risk."""
+    expiry = _resolve_expiry(underlying, expiry)
     if not ai_engine.is_configured():
         return {
             "ai_available": False,
