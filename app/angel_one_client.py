@@ -60,7 +60,7 @@ import requests
 import pyotp
 import json
 import tempfile
-from datetime import datetime
+from datetime import datetime, timedelta
 
 API_KEY = os.environ.get("ANGEL_API_KEY", "")
 CLIENT_CODE = os.environ.get("ANGEL_CLIENT_CODE", "")
@@ -241,8 +241,65 @@ def get_index_ltp(underlying: str) -> dict:
     close = float(d.get("close") or ltp)
     change_pct = round(((ltp - close) / close) * 100, 2) if close else 0.0
     change_abs = round(ltp - close, 2)
-    result = {"ltp": ltp, "change_pct": change_pct, "change_abs": change_abs}
+    result = {
+        "ltp": ltp, "change_pct": change_pct, "change_abs": change_abs,
+        # real PDC (Angel's "close" field on getLtpData is the PREVIOUS day's
+        # close, available even pre-market) + today's real open/high/low so
+        # far - needed to compute a real pivot/support-resistance zone
+        # instead of the mock one.
+        "pdc": close,
+        "open": float(d.get("open") or ltp),
+        "high": float(d.get("high") or ltp),
+        "low": float(d.get("low") or ltp),
+    }
     _ltp_cache[underlying] = (time.time(), result)
+    return result
+
+
+def get_previous_day_ohlc(underlying: str) -> dict:
+    """Real PDH/PDL/PDC (previous trading day's High/Low/Close) via Angel
+    One's Historical Candle Data API - getLtpData only gives PDC (its
+    'close' field), not PDH/PDL, so the nifty-zone pivot needs this
+    separate call to be based on real numbers instead of mock ones.
+    Pulls the last 7 calendar days of daily candles and returns the most
+    recent one that isn't today, which safely skips weekends/holidays."""
+    cache_key = "PDOHLC:" + underlying
+    cached = _ltp_cache.get(cache_key)
+    if cached and (time.time() - cached[0]) < _LTP_CACHE_TTL_SECONDS:
+        return cached[1]
+    _ensure_session()
+    if underlying in _INDEX_TOKENS:
+        exch_seg, _, symboltoken = _INDEX_TOKENS[underlying]
+    elif underlying in _COMMODITY_TOKENS:
+        exch_seg, _, symboltoken = _COMMODITY_TOKENS[underlying]
+    else:
+        raise RuntimeError(f"No known token for {underlying}.")
+    today = datetime.now()
+    resp = requests.post(
+        BASE_URL + "/rest/secure/angelbroking/historical/v1/getCandleData",
+        json={
+            "exchange": exch_seg,
+            "symboltoken": symboltoken,
+            "interval": "ONE_DAY",
+            "fromdate": (today - timedelta(days=7)).strftime("%Y-%m-%d 09:15"),
+            "todate": today.strftime("%Y-%m-%d %H:%M"),
+        },
+        headers=_headers(),
+        timeout=10,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    if not data.get("status"):
+        raise RuntimeError("getCandleData failed: " + str(data.get("message")))
+    rows = data.get("data") or []
+    if not rows:
+        raise RuntimeError("No historical candle data returned.")
+    today_str = today.strftime("%Y-%m-%d")
+    prior_rows = [r for r in rows if not str(r[0]).startswith(today_str)]
+    row = prior_rows[-1] if prior_rows else rows[-1]
+    # row = [timestamp, open, high, low, close, volume]
+    result = {"pdh": float(row[2]), "pdl": float(row[3]), "pdc": float(row[4]), "date": str(row[0])[:10]}
+    _ltp_cache[cache_key] = (time.time(), result)
     return result
 
 
